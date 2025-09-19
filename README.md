@@ -24,9 +24,16 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Using pip:
 ```bash
 # Run the dashboard
 python app.py
+```
+
+### Using uv (recommended):
+```bash
+# Run the dashboard with uv
+uv run python app.py
 ```
 
 Then open your browser and navigate to: `http://localhost:8050`
