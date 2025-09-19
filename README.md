@@ -4,7 +4,7 @@ A comprehensive interactive dashboard for visualizing and analyzing your LinkedI
 
 ## Features
 
-### 7 Interactive Tabs:
+### 8 Interactive Tabs:
 
 1. **Profile Overview** - Personal information, skills distribution, and professional summary
 2. **Network Analytics** - Connection growth timeline, top companies in network, endorsements
@@ -13,6 +13,7 @@ A comprehensive interactive dashboard for visualizing and analyzing your LinkedI
 5. **Job Search** - Application trends, target companies, saved jobs statistics
 6. **Learning** - Course activity, content type distribution, recent learning
 7. **Financial** - LinkedIn Premium spending analysis and transaction history
+8. **Connections** - Interactive table of all LinkedIn connections with selection and export capabilities
 
 ## Installation
 
@@ -60,6 +61,7 @@ The dashboard expects LinkedIn data export CSV files in the following structure:
 - **Communication Patterns**: Understand messaging frequency and key contacts
 - **Investment in Learning**: Track LinkedIn Learning course engagement
 - **Financial Overview**: Monitor LinkedIn Premium subscription costs
+- **Connection Management**: View, filter, sort, and create shortlists of all LinkedIn connections with persistent JSON export
 
 ## Customization
 
