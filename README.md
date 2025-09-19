@@ -17,9 +17,16 @@ A comprehensive interactive dashboard for visualizing and analyzing your LinkedI
 
 ## Installation
 
+### Using pip:
 ```bash
 # Install required packages
 pip install -r requirements.txt
+```
+
+### Using uv (recommended):
+```bash
+# Install dependencies with uv
+uv sync
 ```
 
 ## Usage
