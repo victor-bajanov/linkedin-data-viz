@@ -79,3 +79,6 @@ htmlcov/
 
 # UV
 .uv/
+
+# output
+connections_shortlist.json
