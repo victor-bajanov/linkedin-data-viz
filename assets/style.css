@@ -1,0 +1,153 @@
+/* LinkedIn Dashboard Custom Styles */
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: #f3f2ef;
+}
+
+.container-fluid {
+    padding: 20px;
+}
+
+h1 {
+    color: #0a66c2;
+    font-weight: 600;
+}
+
+h4, h5 {
+    color: #000000e6;
+    font-weight: 600;
+}
+
+/* Card styling */
+.card {
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 16px;
+    transition: box-shadow 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.card-body {
+    padding: 20px;
+}
+
+/* Tab styling */
+.nav-tabs {
+    border-bottom: 2px solid #e0e0e0;
+    margin-bottom: 20px;
+}
+
+.nav-tabs .nav-link {
+    color: #666;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 12px 20px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    color: #0a66c2;
+    border-bottom-color: #0a66c2;
+    background-color: transparent;
+}
+
+.nav-tabs .nav-link.active {
+    color: #0a66c2;
+    border-bottom-color: #0a66c2;
+    background-color: transparent;
+    font-weight: 600;
+}
+
+/* Table styling */
+.table {
+    background-color: white;
+    border-radius: 8px;
+}
+
+.table thead {
+    background-color: #f8f9fa;
+}
+
+/* Graph container styling */
+.dash-graph {
+    background-color: white;
+    border-radius: 8px;
+    padding: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Button styling */
+.btn-primary {
+    background-color: #0a66c2;
+    border-color: #0a66c2;
+    font-weight: 500;
+    padding: 8px 20px;
+    border-radius: 20px;
+}
+
+.btn-primary:hover {
+    background-color: #004182;
+    border-color: #004182;
+}
+
+/* LinkedIn brand colors */
+.linkedin-blue {
+    color: #0a66c2;
+}
+
+.linkedin-bg {
+    background-color: #0a66c2;
+}
+
+/* Loading spinner */
+.dash-spinner {
+    border-color: #0a66c2 !important;
+}
+
+/* Metric cards */
+.metric-card {
+    text-align: center;
+    padding: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.metric-value {
+    font-size: 2.5rem;
+    font-weight: bold;
+    margin: 10px 0;
+}
+
+.metric-label {
+    font-size: 1rem;
+    opacity: 0.9;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding: 10px;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    .card-body {
+        padding: 15px;
+    }
+
+    .nav-tabs .nav-link {
+        padding: 8px 12px;
+        font-size: 0.9rem;
+    }
+}
