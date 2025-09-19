@@ -576,7 +576,7 @@ def create_connections_tab():
     display_df = connections.copy()
 
     # Add a selection column (will be managed by callback)
-    shortlist_path = '/workspace/linkedin/connections_shortlist.json'
+    shortlist_path = 'connections_shortlist.json'
     shortlist = []
     shortlist_names = []
     if os.path.exists(shortlist_path):
