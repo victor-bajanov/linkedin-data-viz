@@ -1,6 +1,6 @@
 # LinkedIn Data Dashboard
 
-A comprehensive interactive dashboard for visualizing and analyzing your LinkedIn data export.
+A comprehensive interactive dashboard for visualising and analysing your LinkedIn data export.
 
 ## Features
 
@@ -8,7 +8,7 @@ A comprehensive interactive dashboard for visualizing and analyzing your LinkedI
 
 1. **Profile Overview** - Personal information, skills distribution, and professional summary
 2. **Network Analytics** - Connection growth timeline, top companies in network, endorsements
-3. **Career Journey** - Career timeline visualization, education history, certifications
+3. **Career Journey** - Career timeline visualisation, education history, certifications
 4. **Communications** - Message volume analysis, top conversation partners
 5. **Job Search** - Application trends, target companies, saved jobs statistics
 6. **Learning** - Course activity, content type distribution, recent learning
@@ -72,16 +72,16 @@ The dashboard expects LinkedIn data export CSV files in the following structure.
 
 - **Professional Growth**: Track career progression and role changes over time
 - **Network Analysis**: Understand your professional network composition and growth
-- **Skill Development**: Visualize skill endorsements and learning patterns
-- **Job Search Patterns**: Analyze application trends and target companies
+- **Skill Development**: Visualise skill endorsements and learning patterns
+- **Job Search Patterns**: Analyse application trends and target companies
 - **Communication Patterns**: Understand messaging frequency and key contacts
 - **Investment in Learning**: Track LinkedIn Learning course engagement
 - **Financial Overview**: Monitor LinkedIn Premium subscription costs
 - **Connection Management**: View, filter, sort, and create shortlists of all LinkedIn connections with persistent JSON export
 
-## Customization
+## Customisation
 
-The dashboard can be customized by modifying:
+The dashboard can be customised by modifying:
 - `app.py` - Main application and tab layouts
 - `data_loader.py` - Data processing and cleaning logic
 - `assets/style.css` - Visual styling and themes
