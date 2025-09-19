@@ -33,10 +33,10 @@ Then open your browser and navigate to: `http://localhost:8050`
 
 ## Data Structure
 
-The dashboard expects LinkedIn data export CSV files in the following structure:
+The dashboard expects LinkedIn data export CSV files in the following structure. This matches the format provided by LinkedIn's official data export feature:
 
 ```
-/workspace/linkedin/
+/workspace/linkedin/data/
 ├── Profile.csv
 ├── Connections.csv
 ├── Positions.csv
@@ -51,6 +51,8 @@ The dashboard expects LinkedIn data export CSV files in the following structure:
 ├── Receipts_v2.csv
 └── ... (other LinkedIn export files)
 ```
+
+**Note**: Place all CSV files from your LinkedIn data export in the `data/` directory. The data export can be requested from LinkedIn's Privacy Settings under "Get a copy of your data".
 
 ## Key Insights Provided
 
