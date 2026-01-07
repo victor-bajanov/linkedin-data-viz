@@ -50,7 +50,7 @@ Then open your browser and navigate to: `http://localhost:8050`
 The dashboard expects LinkedIn data export CSV files in the following structure. This matches the format provided by LinkedIn's official data export feature:
 
 ```
-/workspace/linkedin/data/
+data/
 ├── Profile.csv
 ├── Connections.csv
 ├── Positions.csv

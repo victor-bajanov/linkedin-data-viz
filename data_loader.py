@@ -218,7 +218,7 @@ class LinkedInDataLoader:
 
 if __name__ == "__main__":
     # Test the data loader
-    loader = LinkedInDataLoader('/workspace/linkedin')
+    loader = LinkedInDataLoader('.')
     data = loader.load_all_data()
 
     print("\n=== Data Summary ===")
