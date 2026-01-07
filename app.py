@@ -831,7 +831,7 @@ def render_tab_content(active_tab):
     prevent_initial_call=True
 )
 def update_shortlist(selected_rows, clear_clicks, table_data):
-    shortlist_path = '/workspace/linkedin/connections_shortlist.json'
+    shortlist_path = 'connections_shortlist.json'
 
     # Handle clear button
     if ctx.triggered and ctx.triggered[0]['prop_id'] == 'clear-shortlist-btn.n_clicks':
