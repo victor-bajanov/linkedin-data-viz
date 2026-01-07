@@ -16,7 +16,7 @@ app.title = "LinkedIn Data Dashboard"
 
 # Load data
 print("Loading LinkedIn data...")
-data_loader = LinkedInDataLoader('/workspace/linkedin')
+data_loader = LinkedInDataLoader('.')
 data = data_loader.load_all_data()
 
 # Define the layout
