@@ -9,7 +9,14 @@ import pandas as pd
 import json
 import os
 from data_loader import LinkedInDataLoader
-from shortlist_viewer import create_shortlist_viewer_tab, register_shortlist_callbacks, get_message_history_display
+from shortlist_viewer import (
+    create_shortlist_viewer_tab,
+    register_shortlist_callbacks,
+    get_message_history_display,
+    load_shortlist_with_defaults,
+    save_shortlist,
+    SHORTLIST_PATH,
+)
 
 # Initialize the Dash app with Bootstrap theme
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME], suppress_callback_exceptions=True)
@@ -19,6 +26,16 @@ app.title = "LinkedIn Data Dashboard"
 print("Loading LinkedIn data...")
 data_loader = LinkedInDataLoader('.')
 data = data_loader.load_all_data()
+
+
+def has_data(df):
+    """Check if a DataFrame has data (not None and not empty)."""
+    return df is not None and not df.empty
+
+
+def safe_len(df):
+    """Return length of DataFrame or 0 if None/empty."""
+    return len(df) if has_data(df) else 0
 
 # Define the layout
 app.layout = dbc.Container([
@@ -56,15 +73,14 @@ def create_profile_tab():
     profile = data.get('profile')
     skills = data.get('skills')
     positions = data.get('positions')
-    education = data.get('education')
 
     # Handle empty dataframes
-    if profile is None or profile.empty:
+    if not has_data(profile):
         profile = pd.DataFrame({'First Name': [''], 'Last Name': [''], 'Industry': [''], 'Geo Location': [''], 'Summary': ['']})
 
-    # Skills word cloud (using bar chart as alternative)
+    # Skills bar chart
     skills_fig = None
-    if skills is not None and not skills.empty:
+    if has_data(skills):
         skills_counts = skills['Name'].value_counts().head(20)
         skills_fig = px.bar(
             x=skills_counts.values,
@@ -78,7 +94,7 @@ def create_profile_tab():
     # Current position info
     current_position = "Not specified"
     current_company = "Not specified"
-    if positions is not None and not positions.empty:
+    if has_data(positions):
         current = positions[positions['Finished On'].isna() | (positions['Finished On'] == '')]
         if not current.empty:
             current_position = current.iloc[0]['Title']
@@ -125,9 +141,8 @@ def create_network_tab():
 
     # Connection timeline
     connection_fig = None
-    if connections is not None and not connections.empty and 'Connected On' in connections.columns:
+    if has_data(connections) and 'Connected On' in connections.columns:
         connections_copy = connections.copy()
-        # Parse the date format "16 Sep 2025"
         connections_copy['Connected On'] = pd.to_datetime(connections_copy['Connected On'], format='%d %b %Y', errors='coerce')
         connections_copy = connections_copy.dropna(subset=['Connected On'])
 
@@ -146,7 +161,7 @@ def create_network_tab():
 
     # Top companies in network
     company_fig = None
-    if connections is not None and not connections.empty and 'Company' in connections.columns:
+    if has_data(connections) and 'Company' in connections.columns:
         top_companies = connections['Company'].value_counts().head(15)
         company_fig = px.bar(
             x=top_companies.index,
@@ -162,9 +177,9 @@ def create_network_tab():
                     dbc.CardBody([
                         html.H4("Network Statistics"),
                         html.Hr(),
-                        html.P(f"Total Connections: {len(connections) if connections is not None else 0}", style={'fontSize': '1.2rem'}),
-                        html.P(f"Endorsements Received: {len(endorsements_received) if endorsements_received is not None else 0}", style={'fontSize': '1.2rem'}),
-                        html.P(f"Recommendations Received: {len(recommendations_received) if recommendations_received is not None else 0}", style={'fontSize': '1.2rem'}),
+                        html.P(f"Total Connections: {safe_len(connections)}", style={'fontSize': '1.2rem'}),
+                        html.P(f"Endorsements Received: {safe_len(endorsements_received)}", style={'fontSize': '1.2rem'}),
+                        html.P(f"Recommendations Received: {safe_len(recommendations_received)}", style={'fontSize': '1.2rem'}),
                     ])
                 ], style={'height': '400px'})
             ], width=4),
@@ -181,6 +196,38 @@ def create_network_tab():
         ])
     ])
 
+def create_education_entries(education):
+    """Create education entry components for display."""
+    if not has_data(education):
+        return [html.P("No education data available")]
+
+    entries = []
+    for _, row in education.iterrows():
+        school = row.get('School Name', 'Unknown')
+        degree = row.get('Degree Name', '')
+        start_date = row.get('Start Date')
+        end_date = row.get('End Date')
+
+        # Build date range string
+        date_parts = []
+        if pd.notna(start_date) and str(start_date) != 'nan':
+            date_parts.append(str(start_date).split('-')[0])
+        if pd.notna(end_date) and str(end_date) != 'nan':
+            date_parts.append(str(end_date).split('-')[0])
+        date_range = ' - '.join(date_parts)
+
+        # Build entry components
+        entry_parts = [html.Strong(school), html.Br()]
+        if degree and pd.notna(degree):
+            entry_parts.extend([degree, html.Br()])
+        if date_range:
+            entry_parts.append(html.Small(date_range, className="text-muted"))
+
+        entries.append(html.Div([html.P(entry_parts, className="mb-3")]))
+
+    return entries
+
+
 # Career Journey Tab
 def create_career_tab():
     positions = data.get('positions')
@@ -189,7 +236,7 @@ def create_career_tab():
 
     # Career timeline
     timeline_fig = None
-    if positions is not None and not positions.empty:
+    if has_data(positions):
         positions_copy = positions.copy()
         # Parse dates without timezone info to avoid conflicts
         positions_copy['Started On'] = pd.to_datetime(positions_copy['Started On'], errors='coerce').dt.tz_localize(None)
@@ -264,22 +311,7 @@ def create_career_tab():
                     dbc.CardBody([
                         html.H5("Education"),
                         html.Hr(),
-                        html.Div([
-                            html.Div([
-                                html.P([
-                                    html.Strong(f"{row['School Name']}"),
-                                    html.Br(),
-                                    f"{row['Degree Name'] if pd.notna(row['Degree Name']) and row['Degree Name'] else ''}",
-                                    html.Br() if pd.notna(row['Degree Name']) and row['Degree Name'] else None,
-                                    html.Small(
-                                        f"{str(row['Start Date']).split('-')[0] if pd.notna(row['Start Date']) and str(row['Start Date']) != 'nan' else ''}"
-                                        f"{' - ' if pd.notna(row['Start Date']) and pd.notna(row['End Date']) else ''}"
-                                        f"{str(row['End Date']).split('-')[0] if pd.notna(row['End Date']) and str(row['End Date']) != 'nan' else ''}",
-                                        className="text-muted"
-                                    ) if (pd.notna(row['Start Date']) or pd.notna(row['End Date'])) else None
-                                ], className="mb-3")
-                            ]) for _, row in education.iterrows()
-                        ] if education is not None and not education.empty else [html.P("No education data available")])
+                        html.Div(create_education_entries(education))
                     ])
                 ])
             ], width=6),
@@ -289,9 +321,11 @@ def create_career_tab():
                     dbc.CardBody([
                         html.H5("Certifications"),
                         html.Hr(),
-                        html.Div([
-                            html.P(row['Name']) for _, row in certifications.iterrows()
-                        ] if certifications is not None and not certifications.empty else [html.P("No certification data available")])
+                        html.Div(
+                            [html.P(row['Name']) for _, row in certifications.iterrows()]
+                            if has_data(certifications)
+                            else [html.P("No certification data available")]
+                        )
                     ])
                 ])
             ], width=6)
@@ -299,18 +333,21 @@ def create_career_tab():
     ])
 
 # Communications Tab
+def get_user_name(profile):
+    """Extract user's full name from profile DataFrame."""
+    if not has_data(profile):
+        return None
+    return f"{profile.iloc[0].get('First Name', '')} {profile.iloc[0].get('Last Name', '')}".strip()
+
+
 def create_comm_tab():
     messages = data.get('messages')
     profile = data.get('profile')
-
-    # Get the user's name from profile
-    user_name = None
-    if profile is not None and not profile.empty:
-        user_name = f"{profile.iloc[0].get('First Name', '')} {profile.iloc[0].get('Last Name', '')}".strip()
+    user_name = get_user_name(profile)
 
     # Message volume over time
     message_fig = None
-    if messages is not None and not messages.empty and 'DATE' in messages.columns:
+    if has_data(messages) and 'DATE' in messages.columns:
         messages_copy = messages.copy()
         messages_copy['DATE'] = pd.to_datetime(messages_copy['DATE'], errors='coerce')
         messages_copy = messages_copy.dropna(subset=['DATE'])
@@ -328,34 +365,27 @@ def create_comm_tab():
                 labels={'Count': 'Number of Messages', 'Month': 'Month'}
             )
 
-    # Top conversation partners with clickable names - group by counterparty
+    # Top conversation partners with clickable names
     top_partners_list = None
-    if messages is not None and not messages.empty and 'FROM' in messages.columns and 'TO' in messages.columns:
-        # Create a counterparty column - the person who is NOT the user
+    if has_data(messages) and 'FROM' in messages.columns and 'TO' in messages.columns:
         messages_copy = messages.copy()
 
-        # Determine counterparty for each message
-        def get_counterparty(row):
-            if user_name and row['FROM'] == user_name:
-                return row.get('TO', 'Unknown')
-            else:
-                return row['FROM']
+        # Determine counterparty for each message (the person who is NOT the user)
+        messages_copy['Counterparty'] = messages_copy.apply(
+            lambda row: row.get('TO', 'Unknown') if user_name and row['FROM'] == user_name else row['FROM'],
+            axis=1
+        )
 
-        messages_copy['Counterparty'] = messages_copy.apply(get_counterparty, axis=1)
-
-        # Get top 25 conversation partners by counterparty
         top_partners = messages_copy['Counterparty'].value_counts().head(25)
 
         # Create clickable list
         top_partners_list = html.Div([
             dbc.ListGroup([
                 dbc.ListGroupItem(
-                    [
-                        html.Div([
-                            html.Span(name, className="fw-bold"),
-                            dbc.Badge(f"{count} messages", color="primary", className="float-end")
-                        ])
-                    ],
+                    html.Div([
+                        html.Span(name, className="fw-bold"),
+                        dbc.Badge(f"{count} messages", color="primary", className="float-end")
+                    ]),
                     id={"type": "partner-item", "name": name},
                     action=True,
                     className="d-flex justify-content-between align-items-center"
@@ -407,7 +437,7 @@ def create_job_tab():
 
     # Application timeline
     application_fig = None
-    if job_applications is not None and not job_applications.empty and 'Application Date' in job_applications.columns:
+    if has_data(job_applications) and 'Application Date' in job_applications.columns:
         job_apps_copy = job_applications.copy()
         job_apps_copy['Application Date'] = pd.to_datetime(job_apps_copy['Application Date'], errors='coerce')
         job_apps_copy = job_apps_copy.dropna(subset=['Application Date'])
@@ -428,7 +458,7 @@ def create_job_tab():
 
     # Top target companies
     target_companies_fig = None
-    if job_applications is not None and not job_applications.empty and 'Company Name' in job_applications.columns:
+    if has_data(job_applications) and 'Company Name' in job_applications.columns:
         top_companies = job_applications['Company Name'].value_counts().head(10)
         target_companies_fig = px.bar(
             x=top_companies.index,
@@ -444,9 +474,9 @@ def create_job_tab():
                     dbc.CardBody([
                         html.H4("Job Search Statistics"),
                         html.Hr(),
-                        html.P(f"Total Applications: {len(job_applications) if job_applications is not None else 0}", style={'fontSize': '1.2rem'}),
-                        html.P(f"Saved Jobs: {len(saved_jobs) if saved_jobs is not None else 0}", style={'fontSize': '1.2rem'}),
-                        html.P(f"Job Alerts: {len(job_alerts) if job_alerts is not None else 0}", style={'fontSize': '1.2rem'}),
+                        html.P(f"Total Applications: {safe_len(job_applications)}", style={'fontSize': '1.2rem'}),
+                        html.P(f"Saved Jobs: {safe_len(saved_jobs)}", style={'fontSize': '1.2rem'}),
+                        html.P(f"Job Alerts: {safe_len(job_alerts)}", style={'fontSize': '1.2rem'}),
                     ])
                 ], style={'height': '400px'})
             ], width=4),
@@ -469,7 +499,7 @@ def create_learning_tab():
 
     # Learning content type distribution
     content_type_fig = None
-    if learning is not None and not learning.empty and 'Content Type' in learning.columns:
+    if has_data(learning) and 'Content Type' in learning.columns:
         content_types = learning['Content Type'].value_counts()
         content_type_fig = px.pie(
             values=content_types.values,
@@ -479,7 +509,7 @@ def create_learning_tab():
 
     # Recent courses
     recent_courses = None
-    if learning is not None and not learning.empty and 'Content Last Watched Date (if viewed)' in learning.columns:
+    if has_data(learning) and 'Content Last Watched Date (if viewed)' in learning.columns:
         learning_copy = learning.copy()
         learning_copy['Content Last Watched Date (if viewed)'] = pd.to_datetime(
             learning_copy['Content Last Watched Date (if viewed)'],
@@ -518,7 +548,7 @@ def create_financial_tab():
 
     # Spending over time
     spending_fig = None
-    if receipts is not None and not receipts.empty and 'Transaction Made At' in receipts.columns:
+    if has_data(receipts) and 'Transaction Made At' in receipts.columns:
         receipts_copy = receipts.copy()
         receipts_copy['Transaction Made At'] = pd.to_datetime(receipts_copy['Transaction Made At'], errors='coerce')
         receipts_copy = receipts_copy.dropna(subset=['Transaction Made At'])
@@ -537,7 +567,7 @@ def create_financial_tab():
 
     # Transaction details
     transaction_details = None
-    if receipts is not None and not receipts.empty:
+    if has_data(receipts):
         transaction_details = receipts[['Transaction Made At', 'Description', 'Total Amount', 'Currency Code']].copy()
         transaction_details = transaction_details.sort_values('Transaction Made At', ascending=False)
 
@@ -571,31 +601,15 @@ def create_financial_tab():
 def create_connections_tab():
     connections = data.get('connections')
 
-    if connections is None or connections.empty:
+    if not has_data(connections):
         return html.P("No connections data available")
 
     # Prepare data for display
     display_df = connections.copy()
 
-    # Add a selection column (will be managed by callback)
-    shortlist_path = 'connections_shortlist.json'
-    shortlist = []
-    shortlist_names = []
-    if os.path.exists(shortlist_path):
-        try:
-            with open(shortlist_path, 'r') as f:
-                shortlist_data = json.load(f)
-                # Handle both old format (list of names) and new format (list of objects)
-                if shortlist_data and isinstance(shortlist_data[0], str):
-                    # Old format - just names
-                    shortlist_names = shortlist_data
-                elif shortlist_data:
-                    # New format - objects with details
-                    shortlist = shortlist_data
-                    shortlist_names = [item['name'] for item in shortlist_data]
-        except:
-            shortlist = []
-            shortlist_names = []
+    # Load existing shortlist using shared function
+    shortlist = load_shortlist_with_defaults()
+    shortlist_names = [item['name'] for item in shortlist]
 
     # Create full name column
     display_df['Full Name'] = display_df['First Name'].fillna('') + ' ' + display_df['Last Name'].fillna('')
@@ -731,30 +745,27 @@ def display_message_history_comm(n_clicks):
 
     return message_display, f"Messages with {selected_partner}"
 
-# Callback to render tab content
+# Tab content rendering functions
+TAB_RENDERERS = {
+    "profile-tab": create_profile_tab,
+    "network-tab": create_network_tab,
+    "career-tab": create_career_tab,
+    "connections-tab": create_connections_tab,
+    "comm-tab": create_comm_tab,
+    "job-tab": create_job_tab,
+    "learning-tab": create_learning_tab,
+    "financial-tab": create_financial_tab,
+    "shortlist-crm-tab": create_shortlist_viewer_tab,
+}
+
 @app.callback(
     Output("tab-content", "children"),
     Input("main-tabs", "active_tab")
 )
 def render_tab_content(active_tab):
-    if active_tab == "profile-tab":
-        return create_profile_tab()
-    elif active_tab == "network-tab":
-        return create_network_tab()
-    elif active_tab == "career-tab":
-        return create_career_tab()
-    elif active_tab == "connections-tab":
-        return create_connections_tab()
-    elif active_tab == "comm-tab":
-        return create_comm_tab()
-    elif active_tab == "job-tab":
-        return create_job_tab()
-    elif active_tab == "learning-tab":
-        return create_learning_tab()
-    elif active_tab == "financial-tab":
-        return create_financial_tab()
-    elif active_tab == "shortlist-crm-tab":
-        return create_shortlist_viewer_tab()
+    renderer = TAB_RENDERERS.get(active_tab)
+    if renderer:
+        return renderer()
     return html.P("Select a tab to view content")
 
 # Callback to handle connections selection and persist to JSON
@@ -768,40 +779,34 @@ def render_tab_content(active_tab):
     prevent_initial_call=True
 )
 def update_shortlist(selected_rows, clear_clicks, table_data):
-    shortlist_path = 'connections_shortlist.json'
-
     # Handle clear button
     if ctx.triggered and ctx.triggered[0]['prop_id'] == 'clear-shortlist-btn.n_clicks':
-        # Clear the shortlist and deselect all rows
-        with open(shortlist_path, 'w') as f:
-            json.dump([], f)
-        # Return empty list to clear visual selection
+        save_shortlist([])
         return [], "Shortlisted: 0", []
 
-    # Handle row selections - AG Grid returns the actual row data, not indices
-    # selected_rows can be None (no selection) or empty list (deselected all)
+    # Handle row selections (AG Grid returns actual row data, not indices)
     if selected_rows is None:
         selected_rows = []
 
     # Extract complete connection info from selected rows
-    shortlist = []
-    for row in selected_rows:
-        connection = {
+    def extract_profile_url(url):
+        if not url:
+            return ''
+        return url.replace('[View Profile](', '').replace(')', '')
+
+    shortlist = [
+        {
             'name': row.get('Full Name', ''),
             'company': row.get('Company', ''),
             'position': row.get('Position', ''),
-            'profile_url': row.get('URL', '').replace('[View Profile](', '').replace(')', '') if row.get('URL') else '',
+            'profile_url': extract_profile_url(row.get('URL', '')),
             'connected_on': row.get('Connected On', ''),
             'email': row.get('Email Address', '')
         }
-        shortlist.append(connection)
+        for row in selected_rows
+    ]
 
-    # Save to JSON file immediately with all details
-    with open(shortlist_path, 'w') as f:
-        json.dump(shortlist, f, indent=2)
-
-    # Return the actual row data objects for AG Grid selectedRows (not indices!)
-    # AG Grid expects objects, not indices
+    save_shortlist(shortlist)
     return shortlist, f"Shortlisted: {len(shortlist)}", selected_rows
 
 # Register shortlist CRM callbacks

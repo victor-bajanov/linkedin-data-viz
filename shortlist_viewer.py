@@ -41,6 +41,55 @@ STATUS_COLORS = {
 STATUS_LABELS = {opt["value"]: opt["label"] for opt in STATUS_OPTIONS}
 
 
+def has_data(df):
+    """Check if a DataFrame has data (not None and not empty)."""
+    return df is not None and not df.empty
+
+
+def shortlist_to_row_data(shortlist):
+    """Convert shortlist entries to AG Grid row data format."""
+    return [
+        {
+            "name": entry.get("name", ""),
+            "company": entry.get("company", ""),
+            "position": entry.get("position", ""),
+            "status": entry.get("status", "new"),
+            "status_label": STATUS_LABELS.get(entry.get("status", "new"), "New"),
+            "connected_on": entry.get("connected_on", ""),
+            "profile_url": entry.get("profile_url", ""),
+            "email": entry.get("email", ""),
+            "comments": entry.get("comments", ""),
+        }
+        for entry in shortlist
+    ]
+
+
+def create_stats_items(shortlist):
+    """Create statistics items showing counts per status."""
+    counts = get_status_counts(shortlist)
+    total = len(shortlist)
+
+    items = [
+        html.Div([
+            html.Span("Total: ", className="fw-bold"),
+            dbc.Badge(str(total), color="dark", className="ms-1")
+        ], className="mb-2")
+    ]
+
+    for opt in STATUS_OPTIONS:
+        status_value = opt["value"]
+        count = counts[status_value]
+        if count > 0:
+            items.append(
+                html.Div([
+                    html.Span(f"{opt['label']}: "),
+                    dbc.Badge(str(count), color=STATUS_COLORS[status_value], className="ms-1")
+                ], className="mb-1")
+            )
+
+    return items
+
+
 def get_message_history_display(contact_name, messages_df, profile_df):
     """
     Get message history display components for a contact.
@@ -53,12 +102,12 @@ def get_message_history_display(contact_name, messages_df, profile_df):
     Returns:
         List of Dash components displaying the message history
     """
-    if messages_df is None or messages_df.empty:
+    if not has_data(messages_df):
         return [html.P("No messages available", className="text-muted")]
 
     # Get user name from profile
     user_name = None
-    if profile_df is not None and not profile_df.empty:
+    if has_data(profile_df):
         user_name = f"{profile_df.iloc[0].get('First Name', '')} {profile_df.iloc[0].get('Last Name', '')}".strip()
 
     # Filter messages for this contact (either FROM or TO)
@@ -162,51 +211,16 @@ def get_status_counts(shortlist):
 
 def create_stats_card(shortlist):
     """Create statistics card showing counts per status."""
-    counts = get_status_counts(shortlist)
-    total = len(shortlist)
-
-    stats_items = [
-        html.Div([
-            html.Span("Total: ", className="fw-bold"),
-            dbc.Badge(str(total), color="dark", className="ms-1")
-        ], className="mb-2")
-    ]
-
-    for opt in STATUS_OPTIONS:
-        status_value = opt["value"]
-        count = counts[status_value]
-        if count > 0:
-            stats_items.append(
-                html.Div([
-                    html.Span(f"{opt['label']}: "),
-                    dbc.Badge(str(count), color=STATUS_COLORS[status_value], className="ms-1")
-                ], className="mb-1")
-            )
-
     return dbc.Card([
         dbc.CardHeader(html.H5("Statistics", className="mb-0")),
-        dbc.CardBody(stats_items, id="shortlist-stats")
+        dbc.CardBody(create_stats_items(shortlist), id="shortlist-stats")
     ])
 
 
 def create_shortlist_viewer_tab():
     """Create the Shortlist CRM tab layout."""
     shortlist = load_shortlist_with_defaults()
-
-    # Prepare row data for AG Grid
-    row_data = []
-    for entry in shortlist:
-        row_data.append({
-            "name": entry.get("name", ""),
-            "company": entry.get("company", ""),
-            "position": entry.get("position", ""),
-            "status": entry.get("status", "new"),
-            "status_label": STATUS_LABELS.get(entry.get("status", "new"), "New"),
-            "connected_on": entry.get("connected_on", ""),
-            "profile_url": entry.get("profile_url", ""),
-            "email": entry.get("email", ""),
-            "comments": entry.get("comments", ""),
-        })
+    row_data = shortlist_to_row_data(shortlist)
 
     return dbc.Container([
         dbc.Row([
@@ -427,8 +441,9 @@ def register_shortlist_callbacks(app, data):
     )
     def save_contact_changes(n_clicks, selected_contact, status, comments):
         """Save changes to the selected contact."""
+        from dash import no_update
+
         if not n_clicks or not selected_contact:
-            from dash import no_update
             return no_update, no_update, no_update, no_update, no_update
 
         contact_name = selected_contact.get("name")
@@ -451,45 +466,10 @@ def register_shortlist_callbacks(app, data):
         if not updated:
             return True, f"Error: Contact '{contact_name}' not found", no_update, no_update, no_update
 
-        # Save back to file
         save_shortlist(shortlist)
 
-        # Prepare updated row data
-        row_data = []
-        for entry in shortlist:
-            row_data.append({
-                "name": entry.get("name", ""),
-                "company": entry.get("company", ""),
-                "position": entry.get("position", ""),
-                "status": entry.get("status", "new"),
-                "status_label": STATUS_LABELS.get(entry.get("status", "new"), "New"),
-                "connected_on": entry.get("connected_on", ""),
-                "profile_url": entry.get("profile_url", ""),
-                "email": entry.get("email", ""),
-                "comments": entry.get("comments", ""),
-            })
-
-        # Rebuild stats
-        counts = get_status_counts(shortlist)
-        total = len(shortlist)
-
-        stats_items = [
-            html.Div([
-                html.Span("Total: ", className="fw-bold"),
-                dbc.Badge(str(total), color="dark", className="ms-1")
-            ], className="mb-2")
-        ]
-
-        for opt in STATUS_OPTIONS:
-            status_value = opt["value"]
-            count = counts[status_value]
-            if count > 0:
-                stats_items.append(
-                    html.Div([
-                        html.Span(f"{opt['label']}: "),
-                        dbc.Badge(str(count), color=STATUS_COLORS[status_value], className="ms-1")
-                    ], className="mb-1")
-                )
+        row_data = shortlist_to_row_data(shortlist)
+        stats_items = create_stats_items(shortlist)
 
         return True, f"Saved changes for {contact_name}", row_data, stats_items, row_data
 

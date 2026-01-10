@@ -12,6 +12,11 @@ class LinkedInDataLoader:
         self.data_directory = data_directory
         self.data: Dict[str, Optional[pd.DataFrame]] = {}
 
+    def _has_data(self, df_name: str) -> bool:
+        """Check if a named DataFrame has data (exists and not empty)."""
+        df = self.data.get(df_name)
+        return df is not None and not df.empty
+
     def load_csv_safely(self, filepath: str, name: str) -> Optional[pd.DataFrame]:
         """Safely load a CSV file with error handling"""
         try:
@@ -118,7 +123,6 @@ class LinkedInDataLoader:
             print(f"✗ Error loading connections: {str(e)}")
             self.data['connections'] = None
 
-
         # Clean up common date columns
         self._process_dates()
 
@@ -143,29 +147,31 @@ class LinkedInDataLoader:
         }
 
         for df_name, date_columns in date_mappings.items():
-            df = self.data.get(df_name)
-            if df is not None and not df.empty:
-                for col in date_columns:
-                    if col in df.columns:
-                        try:
-                            # Try parsing with different formats
-                            if df_name == 'connections' and col == 'Connected On':
-                                # Format: "16 Sep 2025"
-                                df[col] = pd.to_datetime(df[col], format='%d %b %Y', errors='coerce')
-                            elif df_name == 'positions':
-                                # Don't use UTC for positions to avoid timezone conflicts
-                                df[col] = pd.to_datetime(df[col], errors='coerce')
-                            else:
-                                df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
-                        except:
-                            pass
+            if not self._has_data(df_name):
+                continue
+
+            df = self.data[df_name]
+            for col in date_columns:
+                if col not in df.columns:
+                    continue
+                try:
+                    if df_name == 'connections' and col == 'Connected On':
+                        # Format: "16 Sep 2025"
+                        df[col] = pd.to_datetime(df[col], format='%d %b %Y', errors='coerce')
+                    elif df_name == 'positions':
+                        # Don't use UTC for positions to avoid timezone conflicts
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
+                    else:
+                        df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
+                except (ValueError, TypeError):
+                    pass
 
     def _add_derived_fields(self):
         """Add useful derived fields to the dataframes"""
 
         # Add duration to positions
-        positions = self.data.get('positions')
-        if positions is not None and not positions.empty:
+        if self._has_data('positions'):
+            positions = self.data['positions']
             if 'Started On' in positions.columns and 'Finished On' in positions.columns:
                 positions['Started On'] = pd.to_datetime(positions['Started On'], errors='coerce')
                 positions['Finished On'] = pd.to_datetime(positions['Finished On'], errors='coerce')
@@ -178,26 +184,24 @@ class LinkedInDataLoader:
                         (finished_dates - positions['Started On'])
                         .dt.total_seconds() / (30 * 24 * 3600)
                     ).round().astype('Int64')
-                except:
+                except (ValueError, TypeError):
                     positions['Duration_Months'] = None
 
                 # Mark current positions
                 positions['Is_Current'] = positions['Finished On'].isna()
 
         # Add year to education
-        education = self.data.get('education')
-        if education is not None and not education.empty:
+        if self._has_data('education'):
+            education = self.data['education']
             if 'Start Date' in education.columns:
                 education['Start Year'] = pd.to_datetime(education['Start Date'], errors='coerce').dt.year
             if 'End Date' in education.columns:
                 education['End Year'] = pd.to_datetime(education['End Date'], errors='coerce').dt.year
 
-        # Extract company from connections
-        connections = self.data.get('connections')
-        if connections is not None and not connections.empty:
-            # Try to ensure we have the right column names
+        # Ensure connections has the right column names
+        if self._has_data('connections'):
+            connections = self.data['connections']
             if 'Connected On' not in connections.columns:
-                # Try to find the date column
                 for col in connections.columns:
                     if 'date' in col.lower() or 'connected' in col.lower():
                         connections.rename(columns={col: 'Connected On'}, inplace=True)
