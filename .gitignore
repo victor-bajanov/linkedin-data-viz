@@ -82,3 +82,6 @@ htmlcov/
 
 # output
 connections_shortlist.json
+
+# other
+*.zip
