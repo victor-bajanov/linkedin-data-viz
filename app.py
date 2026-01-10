@@ -9,6 +9,7 @@ import pandas as pd
 import json
 import os
 from data_loader import LinkedInDataLoader
+from shortlist_viewer import create_shortlist_viewer_tab, register_shortlist_callbacks, get_message_history_display
 
 # Initialize the Dash app with Bootstrap theme
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME], suppress_callback_exceptions=True)
@@ -42,6 +43,7 @@ app.layout = dbc.Container([
                     dbc.Tab(label="Job Search", tab_id="job-tab"),
                     dbc.Tab(label="Learning", tab_id="learning-tab"),
                     dbc.Tab(label="Financial", tab_id="financial-tab"),
+                    dbc.Tab(label="Shortlist CRM", tab_id="shortlist-crm-tab"),
                 ]
             ),
             html.Div(id="tab-content", className="mt-4")
@@ -702,7 +704,7 @@ def create_connections_tab():
     [Input({"type": "partner-item", "name": ALL}, "n_clicks")],
     prevent_initial_call=True
 )
-def display_message_history(n_clicks):
+def display_message_history_comm(n_clicks):
     # Check if any button was triggered
     if not ctx.triggered:
         return [html.P("Select a contact to view message history", className="text-muted")], "Message History"
@@ -713,7 +715,6 @@ def display_message_history(n_clicks):
         return [html.P("Select a contact to view message history", className="text-muted")], "Message History"
 
     # Parse the triggered ID to get the partner name
-    import json
     try:
         button_id = json.loads(triggered['prop_id'].split('.')[0])
         selected_partner = button_id.get('name')
@@ -723,76 +724,10 @@ def display_message_history(n_clicks):
     if not selected_partner:
         return [html.P("Select a contact to view message history", className="text-muted")], "Message History"
 
-    # Get messages for this partner
-    messages = data.get('messages')
-    if messages is None or messages.empty:
-        return [html.P("No messages available")], f"Messages with {selected_partner}"
-
-    # Get user name from profile
-    profile = data.get('profile')
-    user_name = None
-    if profile is not None and not profile.empty:
-        user_name = f"{profile.iloc[0].get('First Name', '')} {profile.iloc[0].get('Last Name', '')}".strip()
-
-    # Filter messages for this partner (either FROM or TO)
-    if 'TO' in messages.columns:
-        partner_messages = messages[
-            (messages['FROM'] == selected_partner) |
-            (messages['TO'] == selected_partner)
-        ].copy()
-    else:
-        partner_messages = messages[
-            messages['FROM'] == selected_partner
-        ].copy()
-
-    if partner_messages.empty:
-        return [html.P(f"No messages found with {selected_partner}")], f"Messages with {selected_partner}"
-
-    # Sort by date
-    partner_messages['DATE'] = pd.to_datetime(partner_messages['DATE'], errors='coerce')
-    partner_messages = partner_messages.sort_values('DATE', ascending=False)
-
-    # Create message display
-    message_display = []
-    for _, msg in partner_messages.iterrows():
-        # Format date
-        date_str = msg['DATE'].strftime('%Y-%m-%d %H:%M') if pd.notna(msg['DATE']) else 'Unknown date'
-
-        # Determine if sent or received based on who is the FROM
-        from_person = msg.get('FROM', 'Unknown')
-        to_person = msg.get('TO', 'Unknown') if 'TO' in msg else 'Unknown'
-
-        # Check if message was sent by user or received
-        if user_name and from_person == user_name:
-            direction = f"You → {to_person}"
-        else:
-            direction = f"{from_person} → You"
-
-        # Get message content
-        content = msg.get('CONTENT', '')
-        if pd.isna(content) or content == '':
-            content = "(No content available)"
-
-        # Create message card
-        message_card = dbc.Card([
-            dbc.CardBody([
-                html.Div([
-                    html.Small(f"{date_str} | {direction}", className="text-muted"),
-                    html.Hr(className="my-1"),
-                    html.P(content, className="mb-0", style={"whiteSpace": "pre-wrap"})
-                ])
-            ])
-        ], className="mb-2")
-
-        message_display.append(message_card)
-
-    # Limit to 50 most recent messages for performance
-    if len(message_display) > 50:
-        message_display = message_display[:50]
-        message_display.append(
-            html.P(f"Showing 50 most recent messages out of {len(partner_messages)} total",
-                   className="text-muted text-center mt-3")
-        )
+    # Use shared helper function
+    messages_df = data.get('messages')
+    profile_df = data.get('profile')
+    message_display = get_message_history_display(selected_partner, messages_df, profile_df)
 
     return message_display, f"Messages with {selected_partner}"
 
@@ -818,6 +753,8 @@ def render_tab_content(active_tab):
         return create_learning_tab()
     elif active_tab == "financial-tab":
         return create_financial_tab()
+    elif active_tab == "shortlist-crm-tab":
+        return create_shortlist_viewer_tab()
     return html.P("Select a tab to view content")
 
 # Callback to handle connections selection and persist to JSON
@@ -866,6 +803,9 @@ def update_shortlist(selected_rows, clear_clicks, table_data):
     # Return the actual row data objects for AG Grid selectedRows (not indices!)
     # AG Grid expects objects, not indices
     return shortlist, f"Shortlisted: {len(shortlist)}", selected_rows
+
+# Register shortlist CRM callbacks
+register_shortlist_callbacks(app, data)
 
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0', port=8050)
