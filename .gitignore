@@ -84,4 +84,5 @@ htmlcov/
 connections_shortlist.json
 
 # other
-*.zipcrm_archive.json
+*.zip
+crm_archive.json
