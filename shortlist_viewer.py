@@ -15,6 +15,7 @@ from datetime import datetime
 
 # Constants
 SHORTLIST_PATH = 'connections_shortlist.json'
+CRM_ARCHIVE_PATH = 'crm_archive.json'
 
 STATUS_OPTIONS = [
     {"label": "New", "value": "new"},
@@ -199,6 +200,42 @@ def save_shortlist(shortlist):
         json.dump(shortlist, f, indent=2)
 
 
+def load_crm_archive():
+    """Load CRM archive from JSON file. Returns dict keyed by contact name."""
+    if os.path.exists(CRM_ARCHIVE_PATH):
+        try:
+            with open(CRM_ARCHIVE_PATH, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def save_to_crm_archive(name, status, comments, last_updated):
+    """Save CRM data for a contact to the archive."""
+    archive = load_crm_archive()
+    archive[name] = {
+        'status': status,
+        'comments': comments,
+        'last_updated': last_updated
+    }
+    with open(CRM_ARCHIVE_PATH, 'w') as f:
+        json.dump(archive, f, indent=2)
+
+
+def get_crm_data_for_contact(name):
+    """Get CRM data for a contact from the archive. Returns defaults if not found."""
+    archive = load_crm_archive()
+    if name in archive:
+        data = archive[name]
+        return {
+            'status': data.get('status', 'new'),
+            'comments': data.get('comments', ''),
+            'last_updated': data.get('last_updated')
+        }
+    return {'status': 'new', 'comments': '', 'last_updated': None}
+
+
 def get_status_counts(shortlist):
     """Calculate counts per status."""
     counts = {opt["value"]: 0 for opt in STATUS_OPTIONS}
@@ -340,6 +377,9 @@ def create_shortlist_viewer_tab():
         # Hidden stores
         dcc.Store(id='selected-shortlist-contact', data=None),
         dcc.Store(id='shortlist-store-full', data=row_data),
+        dcc.Store(id='shortlist-selected-index', data=None),
+        dcc.Store(id='keyboard-event', data={'key': None, 'timestamp': 0}),
+        dcc.Interval(id='keyboard-poll', interval=100, n_intervals=0, disabled=False),
 
         # Toast for save feedback
         dbc.Toast(
@@ -361,6 +401,68 @@ def register_shortlist_callbacks(app, data):
         app: Dash application instance
         data: Data dictionary containing 'messages' and 'profile' DataFrames
     """
+
+    # Status values mapped to number keys 1-8
+    STATUS_KEY_MAP = {
+        '1': 'new',
+        '2': 'to_contact',
+        '3': 'contacted',
+        '4': 'in_conversation',
+        '5': 'meeting_scheduled',
+        '6': 'on_hold',
+        '7': 'closed_positive',
+        '8': 'closed_negative',
+    }
+
+    # Clientside callback to capture global keyboard events
+    app.clientside_callback(
+        """
+        function(n) {
+            // Set up listener on first call
+            if (!window._shortlistKbListenerSetup) {
+                window._shortlistKbListenerSetup = true;
+                window._shortlistPendingKey = null;
+                window._shortlistKeyTimestamp = 0;
+
+                document.addEventListener('keydown', function(e) {
+                    // Check if we're in an input field
+                    const activeTag = document.activeElement.tagName.toLowerCase();
+                    if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+                        return;
+                    }
+
+                    // Check if CRM tab is active by looking for the grid
+                    const crmTable = document.getElementById('shortlist-crm-table');
+                    if (!crmTable) {
+                        return;
+                    }
+                    // Check if the table is visible (tab is active)
+                    if (crmTable.offsetParent === null) {
+                        return;
+                    }
+
+                    // Handle arrow keys and number keys 1-8
+                    const key = e.key;
+                    if (key === 'ArrowUp' || key === 'ArrowDown' || (key >= '1' && key <= '8')) {
+                        e.preventDefault();
+                        window._shortlistPendingKey = key;
+                        window._shortlistKeyTimestamp = Date.now();
+                    }
+                });
+            }
+
+            // Return pending key if any
+            if (window._shortlistPendingKey) {
+                const result = {key: window._shortlistPendingKey, timestamp: window._shortlistKeyTimestamp};
+                window._shortlistPendingKey = null;
+                return result;
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('keyboard-event', 'data'),
+        Input('keyboard-poll', 'n_intervals'),
+    )
 
     @app.callback(
         [Output("shortlist-contact-info", "children"),
@@ -466,7 +568,15 @@ def register_shortlist_callbacks(app, data):
         if not updated:
             return True, f"Error: Contact '{contact_name}' not found", no_update, no_update, no_update
 
+        # Get the last_updated timestamp that was set
+        last_updated = None
+        for entry in shortlist:
+            if entry.get("name") == contact_name:
+                last_updated = entry.get("last_updated")
+                break
+
         save_shortlist(shortlist)
+        save_to_crm_archive(contact_name, status, comments, last_updated)
 
         row_data = shortlist_to_row_data(shortlist)
         stats_items = create_stats_items(shortlist)
@@ -507,3 +617,122 @@ def register_shortlist_callbacks(app, data):
         profile_df = data.get('profile')
 
         return get_message_history_display(contact_name, messages_df, profile_df)
+
+    @app.callback(
+        Output("shortlist-selected-index", "data"),
+        [Input("shortlist-crm-table", "selectedRows")],
+        [State("shortlist-crm-table", "rowData")],
+        prevent_initial_call=True
+    )
+    def track_selected_index(selected_rows, row_data):
+        """Track the index of the currently selected row."""
+        if not selected_rows or not row_data:
+            return None
+        selected_name = selected_rows[0].get("name")
+        for i, row in enumerate(row_data):
+            if row.get("name") == selected_name:
+                return i
+        return None
+
+    @app.callback(
+        Output("shortlist-crm-table", "selectedRows", allow_duplicate=True),
+        [Input("keyboard-event", "data")],
+        [State("shortlist-selected-index", "data"),
+         State("shortlist-crm-table", "rowData")],
+        prevent_initial_call=True
+    )
+    def handle_keyboard_navigation(keyboard_event, current_index, row_data):
+        """Handle arrow key navigation in the grid."""
+        from dash import no_update
+
+        if not keyboard_event or not keyboard_event.get("key"):
+            return no_update
+
+        key = keyboard_event.get("key")
+        if key not in ("ArrowUp", "ArrowDown"):
+            return no_update
+
+        if not row_data:
+            return no_update
+
+        # If no selection, start at first row for down, last for up
+        if current_index is None:
+            if key == "ArrowDown":
+                return [row_data[0]]
+            else:
+                return [row_data[-1]]
+
+        # Calculate new index
+        if key == "ArrowUp":
+            new_index = max(0, current_index - 1)
+        else:
+            new_index = min(len(row_data) - 1, current_index + 1)
+
+        return [row_data[new_index]]
+
+    @app.callback(
+        [Output("shortlist-save-toast", "is_open", allow_duplicate=True),
+         Output("shortlist-save-toast", "children", allow_duplicate=True),
+         Output("shortlist-crm-table", "rowData", allow_duplicate=True),
+         Output("shortlist-stats", "children", allow_duplicate=True),
+         Output("shortlist-store-full", "data", allow_duplicate=True),
+         Output("shortlist-status-dropdown", "value", allow_duplicate=True)],
+        [Input("keyboard-event", "data")],
+        [State("selected-shortlist-contact", "data"),
+         State("shortlist-comments-textarea", "value")],
+        prevent_initial_call=True
+    )
+    def handle_keyboard_status_change(keyboard_event, selected_contact, comments):
+        """Handle number key status changes (1-8)."""
+        from dash import no_update
+
+        if not keyboard_event or not keyboard_event.get("key"):
+            return no_update, no_update, no_update, no_update, no_update, no_update
+
+        key = keyboard_event.get("key")
+        if key not in STATUS_KEY_MAP:
+            return no_update, no_update, no_update, no_update, no_update, no_update
+
+        if not selected_contact:
+            return no_update, no_update, no_update, no_update, no_update, no_update
+
+        contact_name = selected_contact.get("name")
+        if not contact_name:
+            return no_update, no_update, no_update, no_update, no_update, no_update
+
+        new_status = STATUS_KEY_MAP[key]
+        status_label = STATUS_LABELS.get(new_status, new_status)
+
+        # Load current shortlist
+        shortlist = load_shortlist_with_defaults()
+
+        # Find and update the contact
+        updated = False
+        for entry in shortlist:
+            if entry.get("name") == contact_name:
+                entry["status"] = new_status
+                if comments:
+                    entry["comments"] = comments
+                entry["last_updated"] = datetime.now().isoformat()
+                updated = True
+                break
+
+        if not updated:
+            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update
+
+        # Get the last_updated timestamp and comments that were set
+        last_updated = None
+        final_comments = comments or ''
+        for entry in shortlist:
+            if entry.get("name") == contact_name:
+                last_updated = entry.get("last_updated")
+                final_comments = entry.get("comments", '')
+                break
+
+        save_shortlist(shortlist)
+        save_to_crm_archive(contact_name, new_status, final_comments, last_updated)
+
+        row_data = shortlist_to_row_data(shortlist)
+        stats_items = create_stats_items(shortlist)
+
+        return True, f"{contact_name} → {status_label}", row_data, stats_items, row_data, new_status

@@ -15,6 +15,7 @@ from shortlist_viewer import (
     get_message_history_display,
     load_shortlist_with_defaults,
     save_shortlist,
+    get_crm_data_for_contact,
     SHORTLIST_PATH,
 )
 
@@ -794,17 +795,32 @@ def update_shortlist(selected_rows, clear_clicks, table_data):
             return ''
         return url.replace('[View Profile](', '').replace(')', '')
 
-    shortlist = [
-        {
-            'name': row.get('Full Name', ''),
+    # Load current shortlist to preserve existing CRM data
+    current_shortlist = load_shortlist_with_defaults()
+    current_crm = {entry['name']: entry for entry in current_shortlist}
+
+    shortlist = []
+    for row in selected_rows:
+        name = row.get('Full Name', '')
+
+        # First try current shortlist, then fall back to archive for removed/re-added contacts
+        if name in current_crm:
+            crm_data = current_crm[name]
+        else:
+            crm_data = get_crm_data_for_contact(name)
+
+        entry = {
+            'name': name,
             'company': row.get('Company', ''),
             'position': row.get('Position', ''),
             'profile_url': extract_profile_url(row.get('URL', '')),
             'connected_on': row.get('Connected On', ''),
-            'email': row.get('Email Address', '')
+            'email': row.get('Email Address', ''),
+            'status': crm_data.get('status', 'new'),
+            'comments': crm_data.get('comments', ''),
+            'last_updated': crm_data.get('last_updated')
         }
-        for row in selected_rows
-    ]
+        shortlist.append(entry)
 
     save_shortlist(shortlist)
     return shortlist, f"Shortlisted: {len(shortlist)}", selected_rows
