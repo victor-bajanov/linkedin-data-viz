@@ -268,13 +268,28 @@ def create_shortlist_viewer_tab():
                 dbc.Card([
                     dbc.CardHeader([
                         html.H5("Contacts", className="mb-0 d-inline"),
-                        dbc.Select(
-                            id="shortlist-status-filter",
-                            options=[{"label": "All Statuses", "value": "all"}] + STATUS_OPTIONS,
-                            value="all",
+                        dbc.DropdownMenu(
+                            label="Filter Status",
+                            id="status-filter-dropdown",
+                            children=[
+                                dbc.DropdownMenuItem(
+                                    dbc.Button("Select All", id="status-filter-select-all", size="sm", color="link", className="p-0"),
+                                    toggle=False
+                                ),
+                                dbc.DropdownMenuItem(
+                                    dbc.Button("Clear All", id="status-filter-clear-all", size="sm", color="link", className="p-0"),
+                                    toggle=False
+                                ),
+                                dbc.DropdownMenuItem(divider=True),
+                                dbc.Checklist(
+                                    id="shortlist-status-filter",
+                                    options=STATUS_OPTIONS,
+                                    value=[opt["value"] for opt in STATUS_OPTIONS],
+                                    className="px-3",
+                                ),
+                            ],
                             size="sm",
                             className="d-inline-block ms-3",
-                            style={"width": "150px"}
                         )
                     ]),
                     dbc.CardBody([
@@ -303,7 +318,7 @@ def create_shortlist_viewer_tab():
                                     "headerName": "Status",
                                     "flex": 1,
                                     "sortable": True,
-                                    "filter": True,
+                                    "filter": False,
                                 },
                             ],
                             defaultColDef={"resizable": True, "minWidth": 80},
@@ -402,7 +417,7 @@ def register_shortlist_callbacks(app, data):
         data: Data dictionary containing 'messages' and 'profile' DataFrames
     """
 
-    # Status values mapped to number keys 1-8
+    # Status values mapped to number keys 1-8 and letter shortcuts
     STATUS_KEY_MAP = {
         '1': 'new',
         '2': 'to_contact',
@@ -412,6 +427,12 @@ def register_shortlist_callbacks(app, data):
         '6': 'on_hold',
         '7': 'closed_positive',
         '8': 'closed_negative',
+        # Letter shortcuts
+        'c': 'contacted',
+        'h': 'on_hold',
+        'x': 'to_contact',
+        't': 'in_conversation',
+        's': 'meeting_scheduled',
     }
 
     # Clientside callback to capture global keyboard events
@@ -441,11 +462,14 @@ def register_shortlist_callbacks(app, data):
                         return;
                     }
 
-                    // Handle arrow keys and number keys 1-8
+                    // Handle arrow keys, number keys 1-8, and letter shortcuts
                     const key = e.key;
-                    if (key === 'ArrowUp' || key === 'ArrowDown' || (key >= '1' && key <= '8')) {
+                    const letterShortcuts = ['c', 'h', 'x', 't', 's'];
+                    const isLetter = letterShortcuts.includes(key.toLowerCase());
+                    if (key === 'ArrowUp' || key === 'ArrowDown' || (key >= '1' && key <= '8') || isLetter) {
                         e.preventDefault();
-                        window._shortlistPendingKey = key;
+                        // Lowercase letter shortcuts for consistent matching
+                        window._shortlistPendingKey = isLetter ? key.toLowerCase() : key;
                         window._shortlistKeyTimestamp = Date.now();
                     }
                 });
@@ -589,15 +613,31 @@ def register_shortlist_callbacks(app, data):
         [State("shortlist-store-full", "data")],
         prevent_initial_call=True
     )
-    def filter_by_status(status_filter, full_data):
-        """Filter the displayed data based on status selection."""
+    def filter_by_status(selected_statuses, full_data):
+        """Filter the displayed data based on selected statuses (multi-select)."""
         if not full_data:
             return []
 
-        if status_filter == "all":
-            return full_data
+        if not selected_statuses:
+            return []
 
-        return [row for row in full_data if row.get("status") == status_filter]
+        return [row for row in full_data if row.get("status") in selected_statuses]
+
+    @app.callback(
+        Output("shortlist-status-filter", "value"),
+        [Input("status-filter-select-all", "n_clicks"),
+         Input("status-filter-clear-all", "n_clicks")],
+        prevent_initial_call=True
+    )
+    def handle_select_all_clear(select_all, clear_all):
+        """Handle Select All / Clear All buttons for status filter."""
+        from dash import no_update
+        trigger_id = ctx.triggered_id
+        if trigger_id == "status-filter-select-all":
+            return [opt["value"] for opt in STATUS_OPTIONS]
+        elif trigger_id == "status-filter-clear-all":
+            return []
+        return no_update
 
     @app.callback(
         Output("shortlist-message-history", "children"),
