@@ -562,10 +562,11 @@ def register_shortlist_callbacks(app, data):
         [Input("shortlist-save-btn", "n_clicks")],
         [State("selected-shortlist-contact", "data"),
          State("shortlist-status-dropdown", "value"),
-         State("shortlist-comments-textarea", "value")],
+         State("shortlist-comments-textarea", "value"),
+         State("shortlist-status-filter", "value")],
         prevent_initial_call=True
     )
-    def save_contact_changes(n_clicks, selected_contact, status, comments):
+    def save_contact_changes(n_clicks, selected_contact, status, comments, status_filter):
         """Save changes to the selected contact."""
         from dash import no_update
 
@@ -605,7 +606,12 @@ def register_shortlist_callbacks(app, data):
         row_data = shortlist_to_row_data(shortlist)
         stats_items = create_stats_items(shortlist)
 
-        return True, f"Saved changes for {contact_name}", row_data, stats_items, row_data
+        # Apply current status filter to displayed data
+        filtered_data = row_data
+        if status_filter:
+            filtered_data = [row for row in row_data if row.get("status") in status_filter]
+
+        return True, f"Saved changes for {contact_name}", filtered_data, stats_items, row_data
 
     @app.callback(
         Output("shortlist-crm-table", "rowData", allow_duplicate=True),
@@ -719,10 +725,11 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-status-dropdown", "value", allow_duplicate=True)],
         [Input("keyboard-event", "data")],
         [State("selected-shortlist-contact", "data"),
-         State("shortlist-comments-textarea", "value")],
+         State("shortlist-comments-textarea", "value"),
+         State("shortlist-status-filter", "value")],
         prevent_initial_call=True
     )
-    def handle_keyboard_status_change(keyboard_event, selected_contact, comments):
+    def handle_keyboard_status_change(keyboard_event, selected_contact, comments, status_filter):
         """Handle number key status changes (1-8)."""
         from dash import no_update
 
@@ -775,4 +782,9 @@ def register_shortlist_callbacks(app, data):
         row_data = shortlist_to_row_data(shortlist)
         stats_items = create_stats_items(shortlist)
 
-        return True, f"{contact_name} → {status_label}", row_data, stats_items, row_data, new_status
+        # Apply current status filter to displayed data
+        filtered_data = row_data
+        if status_filter:
+            filtered_data = [row for row in row_data if row.get("status") in status_filter]
+
+        return True, f"{contact_name} → {status_label}", filtered_data, stats_items, row_data, new_status
