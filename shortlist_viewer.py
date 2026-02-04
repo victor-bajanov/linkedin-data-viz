@@ -19,24 +19,30 @@ CRM_ARCHIVE_PATH = 'crm_archive.json'
 
 STATUS_OPTIONS = [
     {"label": "New", "value": "new"},
+    {"label": "On Hold", "value": "on_hold"},
     {"label": "To Contact", "value": "to_contact"},
     {"label": "Contacted", "value": "contacted"},
-    {"label": "In Conversation", "value": "in_conversation"},
     {"label": "Meeting Scheduled", "value": "meeting_scheduled"},
-    {"label": "On Hold", "value": "on_hold"},
+    {"label": "In Conversation", "value": "in_conversation"},
+    {"label": "Follow Up", "value": "follow_up"},
+    {"label": "Proposal Sent", "value": "proposal_sent"},
     {"label": "Closed (Positive)", "value": "closed_positive"},
     {"label": "Closed (Negative)", "value": "closed_negative"},
+    {"label": "Closed (Potential Referrer)", "value": "closed_referrer"},
 ]
 
 STATUS_COLORS = {
     "new": "secondary",
+    "on_hold": "dark",
     "to_contact": "info",
     "contacted": "primary",
-    "in_conversation": "warning",
     "meeting_scheduled": "success",
-    "on_hold": "light",
+    "in_conversation": "warning",
+    "follow_up": "secondary",
+    "proposal_sent": "info",
     "closed_positive": "success",
     "closed_negative": "danger",
+    "closed_referrer": "dark",
 }
 
 STATUS_LABELS = {opt["value"]: opt["label"] for opt in STATUS_OPTIONS}
@@ -417,22 +423,27 @@ def register_shortlist_callbacks(app, data):
         data: Data dictionary containing 'messages' and 'profile' DataFrames
     """
 
-    # Status values mapped to number keys 1-8 and letter shortcuts
+    # Status values mapped to number keys 1-9 and letter shortcuts
     STATUS_KEY_MAP = {
         '1': 'new',
-        '2': 'to_contact',
-        '3': 'contacted',
-        '4': 'in_conversation',
+        '2': 'on_hold',
+        '3': 'to_contact',
+        '4': 'contacted',
         '5': 'meeting_scheduled',
-        '6': 'on_hold',
-        '7': 'closed_positive',
-        '8': 'closed_negative',
+        '6': 'in_conversation',
+        '7': 'follow_up',
+        '8': 'proposal_sent',
+        '9': 'closed_positive',
+        '0': 'closed_negative',
         # Letter shortcuts
         'c': 'contacted',
         'h': 'on_hold',
         'x': 'to_contact',
         't': 'in_conversation',
         's': 'meeting_scheduled',
+        'f': 'follow_up',
+        'p': 'proposal_sent',
+        'r': 'closed_referrer',
     }
 
     # Clientside callback to capture global keyboard events
@@ -462,11 +473,11 @@ def register_shortlist_callbacks(app, data):
                         return;
                     }
 
-                    // Handle arrow keys, number keys 1-8, and letter shortcuts
+                    // Handle arrow keys, number keys 0-9, and letter shortcuts
                     const key = e.key;
-                    const letterShortcuts = ['c', 'h', 'x', 't', 's'];
+                    const letterShortcuts = ['c', 'h', 'x', 't', 's', 'f', 'p', 'r'];
                     const isLetter = letterShortcuts.includes(key.toLowerCase());
-                    if (key === 'ArrowUp' || key === 'ArrowDown' || (key >= '1' && key <= '8') || isLetter) {
+                    if (key === 'ArrowUp' || key === 'ArrowDown' || (key >= '0' && key <= '9') || isLetter) {
                         e.preventDefault();
                         // Lowercase letter shortcuts for consistent matching
                         window._shortlistPendingKey = isLetter ? key.toLowerCase() : key;
