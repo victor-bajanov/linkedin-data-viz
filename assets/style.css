@@ -151,3 +151,14 @@ h4, h5 {
         font-size: 0.9rem;
     }
 }
+
+/* Date picker styling */
+#shortlist-follow-up-date .DateInput {
+    width: 110px;
+}
+
+#shortlist-follow-up-date .DateInput_input {
+    font-size: 0.875rem;
+    padding: 4px 8px;
+    font-family: inherit;
+}

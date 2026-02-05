@@ -11,7 +11,7 @@ import dash_ag_grid as dag
 import pandas as pd
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Constants
 SHORTLIST_PATH = 'connections_shortlist.json'
@@ -66,6 +66,7 @@ def shortlist_to_row_data(shortlist):
             "profile_url": entry.get("profile_url", ""),
             "email": entry.get("email", ""),
             "comments": entry.get("comments", ""),
+            "follow_up_date": entry.get("follow_up_date"),
         }
         for entry in shortlist
     ]
@@ -196,6 +197,8 @@ def load_shortlist_with_defaults():
             entry['comments'] = ''
         if 'last_updated' not in entry:
             entry['last_updated'] = None
+        if 'follow_up_date' not in entry:
+            entry['follow_up_date'] = None
 
     return shortlist
 
@@ -217,13 +220,14 @@ def load_crm_archive():
     return {}
 
 
-def save_to_crm_archive(name, status, comments, last_updated):
+def save_to_crm_archive(name, status, comments, last_updated, follow_up_date=None):
     """Save CRM data for a contact to the archive."""
     archive = load_crm_archive()
     archive[name] = {
         'status': status,
         'comments': comments,
-        'last_updated': last_updated
+        'last_updated': last_updated,
+        'follow_up_date': follow_up_date
     }
     with open(CRM_ARCHIVE_PATH, 'w') as f:
         json.dump(archive, f, indent=2)
@@ -237,9 +241,10 @@ def get_crm_data_for_contact(name):
         return {
             'status': data.get('status', 'new'),
             'comments': data.get('comments', ''),
-            'last_updated': data.get('last_updated')
+            'last_updated': data.get('last_updated'),
+            'follow_up_date': data.get('follow_up_date')
         }
-    return {'status': 'new', 'comments': '', 'last_updated': None}
+    return {'status': 'new', 'comments': '', 'last_updated': None, 'follow_up_date': None}
 
 
 def get_status_counts(shortlist):
@@ -362,6 +367,18 @@ def create_shortlist_viewer_tab():
                                 className="mb-3"
                             ),
 
+                            dbc.Label("Follow-up Date", className="fw-bold", id="follow-up-date-label"),
+                            html.Div(
+                                dcc.DatePickerSingle(
+                                    id="shortlist-follow-up-date",
+                                    placeholder="Select date",
+                                    display_format="YYYY-MM-DD",
+                                    disabled=True,
+                                ),
+                                className="mb-3",
+                                style={"fontSize": "0.875rem"}
+                            ),
+
                             dbc.Label("Comments", className="fw-bold"),
                             dbc.Textarea(
                                 id="shortlist-comments-textarea",
@@ -456,6 +473,11 @@ def register_shortlist_callbacks(app, data):
                 window._shortlistPendingKey = null;
                 window._shortlistKeyTimestamp = 0;
 
+                // Follow-up mode state for f + digits
+                window._shortlistFollowUpMode = false;
+                window._shortlistFollowUpBuffer = '';
+                window._shortlistFollowUpTimeout = null;
+
                 document.addEventListener('keydown', function(e) {
                     // Check if we're in an input field
                     const activeTag = document.activeElement.tagName.toLowerCase();
@@ -473,14 +495,88 @@ def register_shortlist_callbacks(app, data):
                         return;
                     }
 
-                    // Handle arrow keys, number keys 0-9, and letter shortcuts
                     const key = e.key;
-                    const letterShortcuts = ['c', 'h', 'x', 't', 's', 'f', 'p', 'r'];
+                    const letterShortcuts = ['c', 'h', 'x', 't', 's', 'f', 'p', 'r', 'd'];
                     const isLetter = letterShortcuts.includes(key.toLowerCase());
-                    if (key === 'ArrowUp' || key === 'ArrowDown' || (key >= '0' && key <= '9') || isLetter) {
+
+                    // Handle 'd' key for date picker focus
+                    if (key.toLowerCase() === 'd') {
+                        e.preventDefault();
+                        const datePicker = document.getElementById('shortlist-follow-up-date');
+                        if (datePicker) {
+                            const input = datePicker.querySelector('input');
+                            if (input && !input.disabled) {
+                                input.focus();
+                                input.click();
+                            }
+                        }
+                        return;
+                    }
+
+                    // Handle follow-up mode (f + digits)
+                    if (window._shortlistFollowUpMode) {
+                        // In follow-up mode, accumulate digits
+                        if (key >= '0' && key <= '9') {
+                            e.preventDefault();
+                            window._shortlistFollowUpBuffer += key;
+                            // Reset timeout
+                            if (window._shortlistFollowUpTimeout) {
+                                clearTimeout(window._shortlistFollowUpTimeout);
+                            }
+                            window._shortlistFollowUpTimeout = setTimeout(function() {
+                                // Emit f + buffer
+                                window._shortlistPendingKey = 'f' + window._shortlistFollowUpBuffer;
+                                window._shortlistKeyTimestamp = Date.now();
+                                window._shortlistFollowUpMode = false;
+                                window._shortlistFollowUpBuffer = '';
+                            }, 500);
+                            return;
+                        } else if (key === 'Enter') {
+                            // Enter ends follow-up mode immediately
+                            e.preventDefault();
+                            if (window._shortlistFollowUpTimeout) {
+                                clearTimeout(window._shortlistFollowUpTimeout);
+                            }
+                            window._shortlistPendingKey = 'f' + window._shortlistFollowUpBuffer;
+                            window._shortlistKeyTimestamp = Date.now();
+                            window._shortlistFollowUpMode = false;
+                            window._shortlistFollowUpBuffer = '';
+                            return;
+                        } else {
+                            // Non-digit key ends follow-up mode
+                            if (window._shortlistFollowUpTimeout) {
+                                clearTimeout(window._shortlistFollowUpTimeout);
+                            }
+                            window._shortlistPendingKey = 'f' + window._shortlistFollowUpBuffer;
+                            window._shortlistKeyTimestamp = Date.now();
+                            window._shortlistFollowUpMode = false;
+                            window._shortlistFollowUpBuffer = '';
+                            // Don't return - continue to process the new key
+                        }
+                    }
+
+                    // Handle 'f' key - enter follow-up mode
+                    if (key.toLowerCase() === 'f') {
+                        e.preventDefault();
+                        window._shortlistFollowUpMode = true;
+                        window._shortlistFollowUpBuffer = '';
+                        // Set timeout to emit 'f' alone if no digits follow
+                        window._shortlistFollowUpTimeout = setTimeout(function() {
+                            window._shortlistPendingKey = 'f';
+                            window._shortlistKeyTimestamp = Date.now();
+                            window._shortlistFollowUpMode = false;
+                            window._shortlistFollowUpBuffer = '';
+                        }, 500);
+                        return;
+                    }
+
+                    // Handle arrow keys, number keys 0-9, and other letter shortcuts
+                    const otherLetters = ['c', 'h', 'x', 't', 's', 'p', 'r'];
+                    const isOtherLetter = otherLetters.includes(key.toLowerCase());
+                    if (key === 'ArrowUp' || key === 'ArrowDown' || (key >= '0' && key <= '9') || isOtherLetter) {
                         e.preventDefault();
                         // Lowercase letter shortcuts for consistent matching
-                        window._shortlistPendingKey = isLetter ? key.toLowerCase() : key;
+                        window._shortlistPendingKey = isOtherLetter ? key.toLowerCase() : key;
                         window._shortlistKeyTimestamp = Date.now();
                     }
                 });
@@ -507,7 +603,9 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-comments-textarea", "value"),
          Output("shortlist-comments-textarea", "disabled"),
          Output("shortlist-save-btn", "disabled"),
-         Output("selected-shortlist-contact", "data")],
+         Output("selected-shortlist-contact", "data"),
+         Output("shortlist-follow-up-date", "date"),
+         Output("shortlist-follow-up-date", "disabled")],
         [Input("shortlist-crm-table", "selectedRows")],
         prevent_initial_call=True
     )
@@ -522,7 +620,9 @@ def register_shortlist_callbacks(app, data):
                 "",
                 True,
                 True,
-                None
+                None,
+                None,
+                True
             )
 
         contact = selected_rows[0]
@@ -534,6 +634,7 @@ def register_shortlist_callbacks(app, data):
         email = contact.get("email", "") or ""
         status = contact.get("status", "new")
         comments = contact.get("comments", "")
+        follow_up_date = contact.get("follow_up_date")
 
         # Build contact info display
         info_items = [
@@ -553,6 +654,9 @@ def register_shortlist_callbacks(app, data):
                 ])
             )
 
+        # Date picker is enabled only when status is follow_up
+        date_picker_disabled = status != "follow_up"
+
         return (
             info_items,
             name,
@@ -561,7 +665,9 @@ def register_shortlist_callbacks(app, data):
             comments or "",
             False,
             False,
-            {"name": name}
+            {"name": name},
+            follow_up_date,
+            date_picker_disabled
         )
 
     @app.callback(
@@ -574,10 +680,11 @@ def register_shortlist_callbacks(app, data):
         [State("selected-shortlist-contact", "data"),
          State("shortlist-status-dropdown", "value"),
          State("shortlist-comments-textarea", "value"),
-         State("shortlist-status-filter", "value")],
+         State("shortlist-status-filter", "value"),
+         State("shortlist-follow-up-date", "date")],
         prevent_initial_call=True
     )
-    def save_contact_changes(n_clicks, selected_contact, status, comments, status_filter):
+    def save_contact_changes(n_clicks, selected_contact, status, comments, status_filter, follow_up_date):
         """Save changes to the selected contact."""
         from dash import no_update
 
@@ -591,6 +698,10 @@ def register_shortlist_callbacks(app, data):
         # Load current shortlist
         shortlist = load_shortlist_with_defaults()
 
+        # Clear follow_up_date if status is not follow_up
+        if status != "follow_up":
+            follow_up_date = None
+
         # Find and update the contact
         updated = False
         for entry in shortlist:
@@ -598,6 +709,7 @@ def register_shortlist_callbacks(app, data):
                 entry["status"] = status
                 entry["comments"] = comments
                 entry["last_updated"] = datetime.now().isoformat()
+                entry["follow_up_date"] = follow_up_date
                 updated = True
                 break
 
@@ -612,7 +724,7 @@ def register_shortlist_callbacks(app, data):
                 break
 
         save_shortlist(shortlist)
-        save_to_crm_archive(contact_name, status, comments, last_updated)
+        save_to_crm_archive(contact_name, status, comments, last_updated, follow_up_date)
 
         row_data = shortlist_to_row_data(shortlist)
         stats_items = create_stats_items(shortlist)
@@ -623,6 +735,15 @@ def register_shortlist_callbacks(app, data):
             filtered_data = [row for row in row_data if row.get("status") in status_filter]
 
         return True, f"Saved changes for {contact_name}", filtered_data, stats_items, row_data
+
+    @app.callback(
+        Output("shortlist-follow-up-date", "disabled", allow_duplicate=True),
+        [Input("shortlist-status-dropdown", "value")],
+        prevent_initial_call=True
+    )
+    def toggle_date_picker_on_status_change(status):
+        """Enable/disable date picker based on status dropdown value."""
+        return status != "follow_up"
 
     @app.callback(
         Output("shortlist-crm-table", "rowData", allow_duplicate=True),
@@ -733,7 +854,9 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-crm-table", "rowData", allow_duplicate=True),
          Output("shortlist-stats", "children", allow_duplicate=True),
          Output("shortlist-store-full", "data", allow_duplicate=True),
-         Output("shortlist-status-dropdown", "value", allow_duplicate=True)],
+         Output("shortlist-status-dropdown", "value", allow_duplicate=True),
+         Output("shortlist-follow-up-date", "date", allow_duplicate=True),
+         Output("shortlist-follow-up-date", "disabled", allow_duplicate=True)],
         [Input("keyboard-event", "data")],
         [State("selected-shortlist-contact", "data"),
          State("shortlist-comments-textarea", "value"),
@@ -741,24 +864,42 @@ def register_shortlist_callbacks(app, data):
         prevent_initial_call=True
     )
     def handle_keyboard_status_change(keyboard_event, selected_contact, comments, status_filter):
-        """Handle number key status changes (1-8)."""
+        """Handle number key and letter status changes, including f + digits for follow-up."""
         from dash import no_update
 
         if not keyboard_event or not keyboard_event.get("key"):
-            return no_update, no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         key = keyboard_event.get("key")
-        if key not in STATUS_KEY_MAP:
-            return no_update, no_update, no_update, no_update, no_update, no_update
+
+        # Parse follow-up key with optional day offset (e.g., 'f', 'f5', 'f20')
+        follow_up_date = None
+        day_offset = 0
+        if key.startswith('f'):
+            if key == 'f':
+                # f alone means follow_up with today's date
+                day_offset = 0
+            else:
+                # f + digits (e.g., f5, f20)
+                try:
+                    day_offset = int(key[1:])
+                except ValueError:
+                    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+
+            new_status = 'follow_up'
+            follow_up_date = (datetime.now() + timedelta(days=day_offset)).strftime('%Y-%m-%d')
+        elif key in STATUS_KEY_MAP:
+            new_status = STATUS_KEY_MAP[key]
+        else:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         if not selected_contact:
-            return no_update, no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         contact_name = selected_contact.get("name")
         if not contact_name:
-            return no_update, no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
-        new_status = STATUS_KEY_MAP[key]
         status_label = STATUS_LABELS.get(new_status, new_status)
 
         # Load current shortlist
@@ -772,23 +913,30 @@ def register_shortlist_callbacks(app, data):
                 if comments:
                     entry["comments"] = comments
                 entry["last_updated"] = datetime.now().isoformat()
+                # Set follow_up_date if status is follow_up, clear otherwise
+                if new_status == 'follow_up':
+                    entry["follow_up_date"] = follow_up_date
+                else:
+                    entry["follow_up_date"] = None
                 updated = True
                 break
 
         if not updated:
-            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update
+            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update, no_update, no_update
 
         # Get the last_updated timestamp and comments that were set
         last_updated = None
         final_comments = comments or ''
+        final_follow_up_date = None
         for entry in shortlist:
             if entry.get("name") == contact_name:
                 last_updated = entry.get("last_updated")
                 final_comments = entry.get("comments", '')
+                final_follow_up_date = entry.get("follow_up_date")
                 break
 
         save_shortlist(shortlist)
-        save_to_crm_archive(contact_name, new_status, final_comments, last_updated)
+        save_to_crm_archive(contact_name, new_status, final_comments, last_updated, final_follow_up_date)
 
         row_data = shortlist_to_row_data(shortlist)
         stats_items = create_stats_items(shortlist)
@@ -798,4 +946,12 @@ def register_shortlist_callbacks(app, data):
         if status_filter:
             filtered_data = [row for row in row_data if row.get("status") in status_filter]
 
-        return True, f"{contact_name} → {status_label}", filtered_data, stats_items, row_data, new_status
+        # Build toast message
+        toast_msg = f"{contact_name} → {status_label}"
+        if new_status == 'follow_up' and follow_up_date:
+            toast_msg += f" ({follow_up_date})"
+
+        # Date picker enabled only for follow_up status
+        date_picker_disabled = new_status != 'follow_up'
+
+        return True, toast_msg, filtered_data, stats_items, row_data, new_status, final_follow_up_date, date_picker_disabled

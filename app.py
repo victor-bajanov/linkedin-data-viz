@@ -818,7 +818,8 @@ def update_shortlist(selected_rows, clear_clicks, table_data):
             'email': row.get('Email Address', ''),
             'status': crm_data.get('status', 'new'),
             'comments': crm_data.get('comments', ''),
-            'last_updated': crm_data.get('last_updated')
+            'last_updated': crm_data.get('last_updated'),
+            'follow_up_date': crm_data.get('follow_up_date')
         }
         shortlist.append(entry)
 
