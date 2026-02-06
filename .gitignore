@@ -1,5 +1,6 @@
 # Data directory
 data/
+data.old/
 
 # Python
 __pycache__/
@@ -64,6 +65,7 @@ logs/
 *.temp
 temp/
 tmp/
+*.bak
 
 # Cache
 .cache/
