@@ -49,28 +49,18 @@ def _cors_response(response, status=200):
     return response
 
 
-@app.server.route('/api/import-contact', methods=['POST', 'OPTIONS'])
-def import_contact():
-    """Import a contact from a LinkedIn profile page (bookmarklet / extension)."""
-    if request.method == 'OPTIONS':
-        return _cors_response({'ok': True})
-
-    data_in = request.get_json(silent=True)
-    if not data_in:
-        return _cors_response({'error': 'Invalid JSON'}, 400)
-
+def _import_contact_logic(data_in):
+    """Shared import logic for both GET and POST. Returns (result_dict, status_code)."""
     name = (data_in.get('name') or '').strip()
     if not name:
-        return _cors_response({'error': 'Name is required'}, 400)
+        return {'error': 'Name is required'}, 400
 
     profile_url = (data_in.get('profile_url') or '').strip()
-    # Sanitise: only accept linkedin.com URLs
     if profile_url:
         parsed = urlparse(profile_url)
         if parsed.hostname and 'linkedin.com' not in parsed.hostname:
             profile_url = ''
 
-    # Build entry matching existing shortlist schema
     new_entry = {
         'name': name,
         'company': (data_in.get('company') or '').strip(),
@@ -86,7 +76,6 @@ def import_contact():
 
     shortlist = load_shortlist_with_defaults()
 
-    # Check for duplicate by profile URL or name
     existing_idx = None
     for i, entry in enumerate(shortlist):
         if profile_url and entry.get('profile_url') == profile_url:
@@ -97,17 +86,71 @@ def import_contact():
             break
 
     if existing_idx is not None:
-        # Update fields that were empty, but don't overwrite CRM work
         existing = shortlist[existing_idx]
         for field in ('company', 'position', 'profile_url'):
             if new_entry[field] and not existing.get(field):
                 existing[field] = new_entry[field]
         save_shortlist(shortlist)
-        return _cors_response({'status': 'updated', 'name': name})
+        return {'status': 'updated', 'name': name}, 200
 
     shortlist.append(new_entry)
     save_shortlist(shortlist)
-    return _cors_response({'status': 'created', 'name': name})
+    return {'status': 'created', 'name': name}, 200
+
+
+def _html_result_page(result, status_code):
+    """Return a small HTML page showing the import result, auto-closes after 2s."""
+    if 'error' in result:
+        title = 'Import Error'
+        message = f"Error: {result['error']}"
+        color = '#dc3545'
+    elif result.get('status') == 'created':
+        title = 'Contact Added'
+        message = f"Added: {result['name']}"
+        color = '#28a745'
+    else:
+        title = 'Contact Updated'
+        message = f"Updated: {result['name']}"
+        color = '#0a66c2'
+
+    html_content = f"""<!DOCTYPE html>
+<html><head><title>{title}</title>
+<style>body{{font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;
+justify-content:center;align-items:center;height:100vh;margin:0;background:#f8f9fa}}
+.card{{text-align:center;padding:40px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.1);
+background:#fff}}.msg{{font-size:1.3rem;color:{color};font-weight:600;margin-bottom:12px}}
+.sub{{color:#666;font-size:.9rem}}</style></head>
+<body><div class="card"><div class="msg">{message}</div>
+<div class="sub">This tab will close in 2 seconds...</div></div>
+<script>setTimeout(function(){{window.close()}},2000)</script></body></html>"""
+
+    from flask import make_response
+    resp = make_response(html_content, status_code)
+    resp.headers['Content-Type'] = 'text/html'
+    return resp
+
+
+@app.server.route('/api/import-contact', methods=['GET', 'POST', 'OPTIONS'])
+def import_contact():
+    """Import a contact from a LinkedIn profile page (bookmarklet / extension).
+
+    GET  — bookmarklet opens this URL with query params (avoids CSP connect-src)
+    POST — for programmatic / extension use with JSON body
+    """
+    if request.method == 'OPTIONS':
+        return _cors_response({'ok': True})
+
+    if request.method == 'GET':
+        data_in = dict(request.args)
+        result, status_code = _import_contact_logic(data_in)
+        return _html_result_page(result, status_code)
+
+    # POST
+    data_in = request.get_json(silent=True)
+    if not data_in:
+        return _cors_response({'error': 'Invalid JSON'}, 400)
+    result, status_code = _import_contact_logic(data_in)
+    return _cors_response(result, status_code)
 
 
 def safe_len(df):

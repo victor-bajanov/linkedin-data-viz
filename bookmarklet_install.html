@@ -20,7 +20,7 @@
   <p>Drag this button to your bookmarks bar:</p>
 
   <p>
-    <a class="bookmarklet-link" href="javascript:void(function(){var E='http://localhost:8050/api/import-contact',n=document.querySelector('h1'),a=n?n.innerText.trim():'',h='',d=document.querySelector('.text-body-medium');d&&(h=d.innerText.trim());var p='',c='';if(h){var m=h.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);m?(p=m[1].trim(),c=m[2].trim()):p=h}if(!c){var x=document.getElementById('experience');if(x){var s=x.closest('section');if(s){var sp=s.querySelectorAll('span.t-14.t-normal:not(.t-black--light)');for(var i=0;i<sp.length;i++){var t=sp[i].innerText.trim();if(t&&!t.match(/^\d+\s+(yr|mo|day)/i)){c=t;break}}}}}var u=location.origin+location.pathname.replace(/\/+$/,'');if(!a){alert('Could not extract a name. Are you on a LinkedIn profile page?');return}if(!confirm('Import to CRM?\n\nName: '+a+'\nPosition: '+(p||'(not detected)')+'\nCompany: '+(c||'(not detected)')+'\nURL: '+u))return;fetch(E,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:a,position:p,company:c,profile_url:u})}).then(function(r){return r.json()}).then(function(d){d.error?alert('Error: '+d.error):alert((d.status==='created'?'Added':'Updated')+': '+d.name)}).catch(function(e){alert('Failed to reach CRM app.\n\n'+e+'\n\nIs the Dash app running on localhost:8050?')})}())">
+    <a class="bookmarklet-link" href="javascript:void(function(){var E='http://localhost:8050/api/import-contact',NZ=['Play','Pause','Mute','LIVE','Video Player','Loaded','Stream Type','Current Time','Duration','Fullscreen','Captions','Settings','Playback Rate','modal window','dialog window','Close Modal'];function isN(t){for(var i=0;i<NZ.length;i++){if(t.indexOf(NZ[i])!==-1)return true}return/^\d+:\d+$/.test(t)||/^\d+\.\d+%$/.test(t)}var a='',hs=document.querySelectorAll('main section')[0];if(hs){var h2s=hs.querySelectorAll('h2');for(var i=0;i<h2s.length;i++){if(h2s[i].closest&&h2s[i].closest('[class*=&quot;vjs&quot;]'))continue;var ht=h2s[i].innerText.trim();if(ht&&ht.length>1){a=ht;break}}}if(!a){var tp=document.title.split('|');if(tp.length>=2&&tp[tp.length-1].trim()==='LinkedIn')a=tp.slice(0,-1).join('|').trim()}var hl='',lo='';if(hs){var ps=hs.querySelectorAll('p'),tx=[];for(var j=0;j<ps.length;j++){var t=ps[j].innerText.trim();if(t.length>5&&!isN(t))tx.push(t)}for(var k=0;k<tx.length;k++){if(tx[k].length>20){hl=tx[k];break}}for(var m=0;m<tx.length;m++){if(tx[m]!==hl&&tx[m].indexOf(',')!==-1&&tx[m].length<80){lo=tx[m];break}}}var p='',c='';if(hl){var mt=hl.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);mt?(p=mt[1].trim(),c=mt[2].trim()):p=hl.split('|')[0].trim()}var u=location.origin+location.pathname.replace(/\/+$/,'');if(!a){alert('Could not extract a name. Are you on a LinkedIn profile page?');return}if(!confirm('Import to CRM?\n\nName: '+a+'\nPosition: '+(p||'(not detected)')+'\nCompany: '+(c||'(not detected)')+'\n'+(lo?'Location: '+lo+'\n':'')+'URL: '+u))return;var q='name='+encodeURIComponent(a)+'&position='+encodeURIComponent(p)+'&company='+encodeURIComponent(c)+'&profile_url='+encodeURIComponent(u);window.open(E+'?'+q,'_blank')}())">
       📋 Import to CRM
     </a>
   </p>
@@ -37,34 +37,35 @@
     <li class="step">Navigate to any LinkedIn profile page (e.g. <code>linkedin.com/in/someone</code>)</li>
     <li class="step">Click the <strong>"Import to CRM"</strong> bookmarklet in your bookmarks bar</li>
     <li class="step">A confirmation dialog shows the extracted data &mdash; click OK to import</li>
+    <li class="step">A new tab opens briefly showing the result, then auto-closes</li>
     <li class="step">The contact appears in your Shortlist CRM tab (refresh the Dash page if already open)</li>
   </ol>
 
   <div class="warning">
-    <strong>Note:</strong> The bookmarklet sends data to <code>http://localhost:8050</code>. This is a
-    mixed-content request (HTTPS &rarr; HTTP). Chrome treats <code>localhost</code> as a secure origin,
-    so this works. If you use Firefox and it blocks the request, see the troubleshooting section below.
+    <strong>Note:</strong> The bookmarklet opens a new tab to <code>http://localhost:8050</code> to send the data.
+    This avoids LinkedIn's Content Security Policy restrictions. The tab auto-closes after 2 seconds.
+    If your browser blocks pop-ups, allow pop-ups for <code>linkedin.com</code>.
   </div>
 
   <h2>What it extracts</h2>
   <ul>
-    <li><strong>Name</strong> &mdash; from the profile's <code>&lt;h1&gt;</code> heading</li>
-    <li><strong>Position &amp; Company</strong> &mdash; parsed from the headline ("Title at Company")</li>
+    <li><strong>Name</strong> &mdash; from the first <code>&lt;h2&gt;</code> in <code>&lt;main section&gt;</code> (skips nav elements), with <code>document.title</code> as fallback</li>
+    <li><strong>Position &amp; Company</strong> &mdash; parsed from the headline ("Title at Company"), or first segment if pipe-separated</li>
     <li><strong>Profile URL</strong> &mdash; the current page URL (cleaned)</li>
   </ul>
   <p>All CRM fields (status, comments, follow-up date) are initialized with defaults. Edit them in the Shortlist CRM tab.</p>
 
   <h2>Troubleshooting</h2>
   <ul>
-    <li><strong>"Failed to reach CRM app"</strong> &mdash; is <code>python app.py</code> running?</li>
-    <li><strong>Firefox blocks the request</strong> &mdash; Firefox enforces CSP/mixed-content more strictly. Use Chrome, or consider the Chrome extension approach.</li>
+    <li><strong>New tab shows an error or won't load</strong> &mdash; is <code>python app.py</code> running?</li>
+    <li><strong>Pop-up blocked</strong> &mdash; allow pop-ups for <code>linkedin.com</code> in your browser settings.</li>
     <li><strong>Position/Company not detected</strong> &mdash; the headline format varies. You can edit these fields in the CRM tab after import.</li>
     <li><strong>Duplicate contacts</strong> &mdash; if the profile URL or name already exists in your shortlist, the bookmarklet updates empty fields rather than creating a duplicate.</li>
   </ul>
 
   <h2>Raw bookmarklet code</h2>
   <p>If drag-and-drop doesn't work, create a bookmark manually and paste this as the URL:</p>
-  <pre>javascript:void(function(){var E='http://localhost:8050/api/import-contact',n=document.querySelector('h1'),a=n?n.innerText.trim():'',h='',d=document.querySelector('.text-body-medium');d&&(h=d.innerText.trim());var p='',c='';if(h){var m=h.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);m?(p=m[1].trim(),c=m[2].trim()):p=h}if(!c){var x=document.getElementById('experience');if(x){var s=x.closest('section');if(s){var sp=s.querySelectorAll('span.t-14.t-normal:not(.t-black--light)');for(var i=0;i&lt;sp.length;i++){var t=sp[i].innerText.trim();if(t&&!t.match(/^\d+\s+(yr|mo|day)/i)){c=t;break}}}}}var u=location.origin+location.pathname.replace(/\/+$/,'');if(!a){alert('Could not extract a name. Are you on a LinkedIn profile page?');return}if(!confirm('Import to CRM?\n\nName: '+a+'\nPosition: '+(p||'(not detected)')+'\nCompany: '+(c||'(not detected)')+'\nURL: '+u))return;fetch(E,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:a,position:p,company:c,profile_url:u})}).then(function(r){return r.json()}).then(function(d){d.error?alert('Error: '+d.error):alert((d.status==='created'?'Added':'Updated')+': '+d.name)}).catch(function(e){alert('Failed to reach CRM app.\n\n'+e+'\n\nIs the Dash app running on localhost:8050?')})}())</pre>
+  <pre>javascript:void(function(){var E='http://localhost:8050/api/import-contact',NZ=['Play','Pause','Mute','LIVE','Video Player','Loaded','Stream Type','Current Time','Duration','Fullscreen','Captions','Settings','Playback Rate','modal window','dialog window','Close Modal'];function isN(t){for(var i=0;i&lt;NZ.length;i++){if(t.indexOf(NZ[i])!==-1)return true}return/^\d+:\d+$/.test(t)||/^\d+\.\d+%$/.test(t)}var a='',hs=document.querySelectorAll('main section')[0];if(hs){var h2s=hs.querySelectorAll('h2');for(var i=0;i&lt;h2s.length;i++){if(h2s[i].closest&amp;&amp;h2s[i].closest('[class*="vjs"]'))continue;var ht=h2s[i].innerText.trim();if(ht&amp;&amp;ht.length&gt;1){a=ht;break}}}if(!a){var tp=document.title.split('|');if(tp.length&gt;=2&amp;&amp;tp[tp.length-1].trim()==='LinkedIn')a=tp.slice(0,-1).join('|').trim()}var hl='',lo='';if(hs){var ps=hs.querySelectorAll('p'),tx=[];for(var j=0;j&lt;ps.length;j++){var t=ps[j].innerText.trim();if(t.length&gt;5&amp;&amp;!isN(t))tx.push(t)}for(var k=0;k&lt;tx.length;k++){if(tx[k].length&gt;20){hl=tx[k];break}}for(var m=0;m&lt;tx.length;m++){if(tx[m]!==hl&amp;&amp;tx[m].indexOf(',')!==-1&amp;&amp;tx[m].length&lt;80){lo=tx[m];break}}}var p='',c='';if(hl){var mt=hl.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);mt?(p=mt[1].trim(),c=mt[2].trim()):p=hl.split('|')[0].trim()}var u=location.origin+location.pathname.replace(/\/+$/,'');if(!a){alert('Could not extract a name. Are you on a LinkedIn profile page?');return}if(!confirm('Import to CRM?\n\nName: '+a+'\nPosition: '+(p||'(not detected)')+'\nCompany: '+(c||'(not detected)')+'\n'+(lo?'Location: '+lo+'\n':'')+'URL: '+u))return;var q='name='+encodeURIComponent(a)+'&amp;position='+encodeURIComponent(p)+'&amp;company='+encodeURIComponent(c)+'&amp;profile_url='+encodeURIComponent(u);window.open(E+'?'+q,'_blank')}())</pre>
 
 </body>
 </html>
