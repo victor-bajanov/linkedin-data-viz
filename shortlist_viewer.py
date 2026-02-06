@@ -388,12 +388,6 @@ def create_shortlist_viewer_tab():
                                 className="mb-3"
                             ),
 
-                            dbc.Button(
-                                "Save Changes",
-                                id="shortlist-save-btn",
-                                color="primary",
-                                disabled=True,
-                            ),
                         ]),
                     ])
                 ], className="mb-3"),
@@ -418,6 +412,12 @@ def create_shortlist_viewer_tab():
         dcc.Store(id='shortlist-selected-index', data=None),
         dcc.Store(id='keyboard-event', data={'key': None, 'timestamp': 0}),
         dcc.Interval(id='keyboard-poll', interval=100, n_intervals=0, disabled=False),
+
+        # Auto-save stores and interval
+        dcc.Store(id='contact-loaded-values', data=None),
+        dcc.Store(id='comments-pending', data=None),
+        dcc.Store(id='comments-debounced', data=None),
+        dcc.Interval(id='comments-debounce-check', interval=200, disabled=True),
 
         # Toast for save feedback
         dbc.Toast(
@@ -595,6 +595,43 @@ def register_shortlist_callbacks(app, data):
         Input('keyboard-poll', 'n_intervals'),
     )
 
+    # Clientside callback A: On textarea change, record pending edit + enable interval
+    app.clientside_callback(
+        """
+        function(value) {
+            if (value === undefined || value === null) {
+                return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+            }
+            return [{value: value, ts: Date.now()}, false];
+        }
+        """,
+        [Output('comments-pending', 'data'),
+         Output('comments-debounce-check', 'disabled')],
+        [Input('shortlist-comments-textarea', 'value')],
+        prevent_initial_call=True
+    )
+
+    # Clientside callback B: On interval tick, check if 500ms elapsed
+    app.clientside_callback(
+        """
+        function(n_intervals, pending) {
+            if (!pending || !pending.ts) {
+                return [window.dash_clientside.no_update, true];
+            }
+            var elapsed = Date.now() - pending.ts;
+            if (elapsed >= 500) {
+                return [{value: pending.value, ts: pending.ts}, true];
+            }
+            return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        }
+        """,
+        [Output('comments-debounced', 'data'),
+         Output('comments-debounce-check', 'disabled', allow_duplicate=True)],
+        [Input('comments-debounce-check', 'n_intervals')],
+        [State('comments-pending', 'data')],
+        prevent_initial_call=True
+    )
+
     @app.callback(
         [Output("shortlist-contact-info", "children"),
          Output("shortlist-contact-name", "children"),
@@ -602,15 +639,51 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-status-dropdown", "disabled"),
          Output("shortlist-comments-textarea", "value"),
          Output("shortlist-comments-textarea", "disabled"),
-         Output("shortlist-save-btn", "disabled"),
          Output("selected-shortlist-contact", "data"),
          Output("shortlist-follow-up-date", "date"),
-         Output("shortlist-follow-up-date", "disabled")],
+         Output("shortlist-follow-up-date", "disabled"),
+         Output("contact-loaded-values", "data"),
+         Output("comments-pending", "data", allow_duplicate=True),
+         Output("comments-debounced", "data", allow_duplicate=True),
+         Output("comments-debounce-check", "disabled", allow_duplicate=True)],
         [Input("shortlist-crm-table", "selectedRows")],
+        [State("shortlist-status-dropdown", "value"),
+         State("shortlist-comments-textarea", "value"),
+         State("shortlist-follow-up-date", "date"),
+         State("contact-loaded-values", "data"),
+         State("selected-shortlist-contact", "data")],
         prevent_initial_call=True
     )
-    def display_contact_details(selected_rows):
-        """Display details when a contact is selected."""
+    def display_contact_details(selected_rows, prev_status, prev_comments, prev_follow_up_date, loaded_values, prev_selected):
+        """Display details when a contact is selected. Flushes unsaved changes for previous contact."""
+        from dash import no_update
+
+        # Flush unsaved changes for previous contact before switching
+        if loaded_values and prev_selected and prev_selected.get("name"):
+            prev_name = prev_selected["name"]
+            changed = False
+            if prev_status != loaded_values.get("status"):
+                changed = True
+            if (prev_comments or "") != (loaded_values.get("comments") or ""):
+                changed = True
+            if prev_follow_up_date != loaded_values.get("follow_up_date"):
+                changed = True
+
+            if changed:
+                shortlist = load_shortlist_with_defaults()
+                flush_follow_up = prev_follow_up_date
+                if prev_status != "follow_up":
+                    flush_follow_up = None
+                for entry in shortlist:
+                    if entry.get("name") == prev_name:
+                        entry["status"] = prev_status
+                        entry["comments"] = prev_comments or ""
+                        entry["last_updated"] = datetime.now().isoformat()
+                        entry["follow_up_date"] = flush_follow_up
+                        break
+                save_shortlist(shortlist)
+                save_to_crm_archive(prev_name, prev_status, prev_comments or "", datetime.now().isoformat(), flush_follow_up)
+
         if not selected_rows or len(selected_rows) == 0:
             return (
                 [html.P("Select a contact from the list to view details", className="text-muted")],
@@ -619,10 +692,11 @@ def register_shortlist_callbacks(app, data):
                 True,
                 "",
                 True,
+                None,
+                None,
                 True,
                 None,
-                None,
-                True
+                None, None, True
             )
 
         contact = selected_rows[0]
@@ -657,6 +731,8 @@ def register_shortlist_callbacks(app, data):
         # Date picker is enabled only when status is follow_up
         date_picker_disabled = status != "follow_up"
 
+        loaded = {"status": status, "comments": comments or "", "follow_up_date": follow_up_date}
+
         return (
             info_items,
             name,
@@ -664,10 +740,11 @@ def register_shortlist_callbacks(app, data):
             False,
             comments or "",
             False,
-            False,
             {"name": name},
             follow_up_date,
-            date_picker_disabled
+            date_picker_disabled,
+            loaded,
+            None, None, True
         )
 
     @app.callback(
@@ -675,56 +752,70 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-save-toast", "children"),
          Output("shortlist-crm-table", "rowData"),
          Output("shortlist-stats", "children"),
-         Output("shortlist-store-full", "data")],
-        [Input("shortlist-save-btn", "n_clicks")],
+         Output("shortlist-store-full", "data"),
+         Output("contact-loaded-values", "data", allow_duplicate=True)],
+        [Input("shortlist-status-dropdown", "value"),
+         Input("shortlist-follow-up-date", "date"),
+         Input("comments-debounced", "data")],
         [State("selected-shortlist-contact", "data"),
-         State("shortlist-status-dropdown", "value"),
-         State("shortlist-comments-textarea", "value"),
+         State("contact-loaded-values", "data"),
          State("shortlist-status-filter", "value"),
-         State("shortlist-follow-up-date", "date")],
+         State("shortlist-comments-textarea", "value")],
         prevent_initial_call=True
     )
-    def save_contact_changes(n_clicks, selected_contact, status, comments, status_filter, follow_up_date):
-        """Save changes to the selected contact."""
+    def auto_save_contact(status, follow_up_date, comments_debounced, selected_contact, loaded_values, status_filter, comments_textarea):
+        """Auto-save changes when status, follow-up date, or comments change."""
         from dash import no_update
 
-        if not n_clicks or not selected_contact:
-            return no_update, no_update, no_update, no_update, no_update
+        if not selected_contact or not loaded_values:
+            return no_update, no_update, no_update, no_update, no_update, no_update
 
         contact_name = selected_contact.get("name")
         if not contact_name:
-            return True, "Error: No contact selected", no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update
+
+        # Determine current values
+        current_status = status
+        current_comments = comments_textarea or ""
+        current_follow_up = follow_up_date
+
+        # Only use debounced comments when the debounce timer is the actual trigger.
+        # Otherwise the store holds stale data from a previous contact.
+        if ctx.triggered_id == "comments-debounced" and comments_debounced and comments_debounced.get("value") is not None:
+            current_comments = comments_debounced["value"]
+
+        # Compare against loaded values - skip if nothing changed
+        loaded_status = loaded_values.get("status")
+        loaded_comments = loaded_values.get("comments") or ""
+        loaded_follow_up = loaded_values.get("follow_up_date")
+
+        if current_status == loaded_status and current_comments == loaded_comments and current_follow_up == loaded_follow_up:
+            return no_update, no_update, no_update, no_update, no_update, no_update
+
+        # Clear follow_up_date if status is not follow_up
+        if current_status != "follow_up":
+            current_follow_up = None
 
         # Load current shortlist
         shortlist = load_shortlist_with_defaults()
-
-        # Clear follow_up_date if status is not follow_up
-        if status != "follow_up":
-            follow_up_date = None
 
         # Find and update the contact
         updated = False
         for entry in shortlist:
             if entry.get("name") == contact_name:
-                entry["status"] = status
-                entry["comments"] = comments
+                entry["status"] = current_status
+                entry["comments"] = current_comments
                 entry["last_updated"] = datetime.now().isoformat()
-                entry["follow_up_date"] = follow_up_date
+                entry["follow_up_date"] = current_follow_up
                 updated = True
                 break
 
         if not updated:
-            return True, f"Error: Contact '{contact_name}' not found", no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update
 
-        # Get the last_updated timestamp that was set
-        last_updated = None
-        for entry in shortlist:
-            if entry.get("name") == contact_name:
-                last_updated = entry.get("last_updated")
-                break
-
+        last_updated = datetime.now().isoformat()
         save_shortlist(shortlist)
-        save_to_crm_archive(contact_name, status, comments, last_updated, follow_up_date)
+        save_to_crm_archive(contact_name, current_status, current_comments, last_updated, current_follow_up)
 
         row_data = shortlist_to_row_data(shortlist)
         stats_items = create_stats_items(shortlist)
@@ -734,7 +825,9 @@ def register_shortlist_callbacks(app, data):
         if status_filter:
             filtered_data = [row for row in row_data if row.get("status") in status_filter]
 
-        return True, f"Saved changes for {contact_name}", filtered_data, stats_items, row_data
+        new_loaded = {"status": current_status, "comments": current_comments, "follow_up_date": current_follow_up}
+
+        return True, f"Auto-saved {contact_name}", filtered_data, stats_items, row_data, new_loaded
 
     @app.callback(
         Output("shortlist-follow-up-date", "disabled", allow_duplicate=True),
@@ -856,7 +949,8 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-store-full", "data", allow_duplicate=True),
          Output("shortlist-status-dropdown", "value", allow_duplicate=True),
          Output("shortlist-follow-up-date", "date", allow_duplicate=True),
-         Output("shortlist-follow-up-date", "disabled", allow_duplicate=True)],
+         Output("shortlist-follow-up-date", "disabled", allow_duplicate=True),
+         Output("contact-loaded-values", "data", allow_duplicate=True)],
         [Input("keyboard-event", "data")],
         [State("selected-shortlist-contact", "data"),
          State("shortlist-comments-textarea", "value"),
@@ -867,8 +961,10 @@ def register_shortlist_callbacks(app, data):
         """Handle number key and letter status changes, including f + digits for follow-up."""
         from dash import no_update
 
+        NO_UPD = (no_update,) * 9
+
         if not keyboard_event or not keyboard_event.get("key"):
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return NO_UPD
 
         key = keyboard_event.get("key")
 
@@ -884,21 +980,21 @@ def register_shortlist_callbacks(app, data):
                 try:
                     day_offset = int(key[1:])
                 except ValueError:
-                    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+                    return NO_UPD
 
             new_status = 'follow_up'
             follow_up_date = (datetime.now() + timedelta(days=day_offset)).strftime('%Y-%m-%d')
         elif key in STATUS_KEY_MAP:
             new_status = STATUS_KEY_MAP[key]
         else:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return NO_UPD
 
         if not selected_contact:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return NO_UPD
 
         contact_name = selected_contact.get("name")
         if not contact_name:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return NO_UPD
 
         status_label = STATUS_LABELS.get(new_status, new_status)
 
@@ -922,7 +1018,7 @@ def register_shortlist_callbacks(app, data):
                 break
 
         if not updated:
-            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update, no_update, no_update
+            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         # Get the last_updated timestamp and comments that were set
         last_updated = None
@@ -954,4 +1050,7 @@ def register_shortlist_callbacks(app, data):
         # Date picker enabled only for follow_up status
         date_picker_disabled = new_status != 'follow_up'
 
-        return True, toast_msg, filtered_data, stats_items, row_data, new_status, final_follow_up_date, date_picker_disabled
+        # Update loaded values so auto-save doesn't double-fire
+        new_loaded = {"status": new_status, "comments": final_comments, "follow_up_date": final_follow_up_date}
+
+        return True, toast_msg, filtered_data, stats_items, row_data, new_status, final_follow_up_date, date_picker_disabled, new_loaded
