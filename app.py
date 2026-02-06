@@ -4,7 +4,9 @@ import dash_bootstrap_components as dbc
 import dash_ag_grid as dag
 import plotly.graph_objects as go
 import plotly.express as px
+from flask import request, jsonify
 from datetime import datetime
+from urllib.parse import urlparse
 import pandas as pd
 import json
 import os
@@ -32,6 +34,80 @@ data = data_loader.load_all_data()
 def has_data(df):
     """Check if a DataFrame has data (not None and not empty)."""
     return df is not None and not df.empty
+
+
+# --- LinkedIn Profile Import API ---
+
+def _cors_response(response, status=200):
+    """Add CORS headers allowing requests from LinkedIn."""
+    if not isinstance(response, app.server.response_class):
+        response = jsonify(response)
+        response.status_code = status
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
+
+
+@app.server.route('/api/import-contact', methods=['POST', 'OPTIONS'])
+def import_contact():
+    """Import a contact from a LinkedIn profile page (bookmarklet / extension)."""
+    if request.method == 'OPTIONS':
+        return _cors_response({'ok': True})
+
+    data_in = request.get_json(silent=True)
+    if not data_in:
+        return _cors_response({'error': 'Invalid JSON'}, 400)
+
+    name = (data_in.get('name') or '').strip()
+    if not name:
+        return _cors_response({'error': 'Name is required'}, 400)
+
+    profile_url = (data_in.get('profile_url') or '').strip()
+    # Sanitise: only accept linkedin.com URLs
+    if profile_url:
+        parsed = urlparse(profile_url)
+        if parsed.hostname and 'linkedin.com' not in parsed.hostname:
+            profile_url = ''
+
+    # Build entry matching existing shortlist schema
+    new_entry = {
+        'name': name,
+        'company': (data_in.get('company') or '').strip(),
+        'position': (data_in.get('position') or '').strip(),
+        'profile_url': profile_url,
+        'connected_on': '',
+        'email': '',
+        'status': 'new',
+        'comments': (data_in.get('comments') or '').strip(),
+        'last_updated': datetime.now().isoformat(),
+        'follow_up_date': None,
+    }
+
+    shortlist = load_shortlist_with_defaults()
+
+    # Check for duplicate by profile URL or name
+    existing_idx = None
+    for i, entry in enumerate(shortlist):
+        if profile_url and entry.get('profile_url') == profile_url:
+            existing_idx = i
+            break
+        if entry.get('name') == name:
+            existing_idx = i
+            break
+
+    if existing_idx is not None:
+        # Update fields that were empty, but don't overwrite CRM work
+        existing = shortlist[existing_idx]
+        for field in ('company', 'position', 'profile_url'):
+            if new_entry[field] and not existing.get(field):
+                existing[field] = new_entry[field]
+        save_shortlist(shortlist)
+        return _cors_response({'status': 'updated', 'name': name})
+
+    shortlist.append(new_entry)
+    save_shortlist(shortlist)
+    return _cors_response({'status': 'created', 'name': name})
 
 
 def safe_len(df):

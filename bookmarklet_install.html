@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LinkedIn → CRM Bookmarklet</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; color: #333; line-height: 1.6; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; }
+    .bookmarklet-link { display: inline-block; padding: 12px 24px; background: #0a66c2; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 1rem; cursor: grab; }
+    .bookmarklet-link:hover { background: #004182; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+    pre { background: #f4f4f4; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; }
+    .step { margin: 8px 0; }
+    .warning { background: #fff3cd; border: 1px solid #ffc107; padding: 12px; border-radius: 6px; margin: 16px 0; }
+  </style>
+</head>
+<body>
+  <h1>LinkedIn &rarr; CRM Bookmarklet</h1>
+  <p>Drag this button to your bookmarks bar:</p>
+
+  <p>
+    <a class="bookmarklet-link" href="javascript:void(function(){var E='http://localhost:8050/api/import-contact',n=document.querySelector('h1'),a=n?n.innerText.trim():'',h='',d=document.querySelector('.text-body-medium');d&&(h=d.innerText.trim());var p='',c='';if(h){var m=h.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);m?(p=m[1].trim(),c=m[2].trim()):p=h}if(!c){var x=document.getElementById('experience');if(x){var s=x.closest('section');if(s){var sp=s.querySelectorAll('span.t-14.t-normal:not(.t-black--light)');for(var i=0;i<sp.length;i++){var t=sp[i].innerText.trim();if(t&&!t.match(/^\d+\s+(yr|mo|day)/i)){c=t;break}}}}}var u=location.origin+location.pathname.replace(/\/+$/,'');if(!a){alert('Could not extract a name. Are you on a LinkedIn profile page?');return}if(!confirm('Import to CRM?\n\nName: '+a+'\nPosition: '+(p||'(not detected)')+'\nCompany: '+(c||'(not detected)')+'\nURL: '+u))return;fetch(E,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:a,position:p,company:c,profile_url:u})}).then(function(r){return r.json()}).then(function(d){d.error?alert('Error: '+d.error):alert((d.status==='created'?'Added':'Updated')+': '+d.name)}).catch(function(e){alert('Failed to reach CRM app.\n\n'+e+'\n\nIs the Dash app running on localhost:8050?')})}())">
+      📋 Import to CRM
+    </a>
+  </p>
+
+  <h2>How to install</h2>
+  <ol>
+    <li class="step">Make sure your bookmarks bar is visible (<code>Ctrl+Shift+B</code> / <code>Cmd+Shift+B</code>)</li>
+    <li class="step"><strong>Drag</strong> the blue button above onto your bookmarks bar</li>
+  </ol>
+
+  <h2>How to use</h2>
+  <ol>
+    <li class="step">Make sure the Dash app is running (<code>python app.py</code> &rarr; <code>localhost:8050</code>)</li>
+    <li class="step">Navigate to any LinkedIn profile page (e.g. <code>linkedin.com/in/someone</code>)</li>
+    <li class="step">Click the <strong>"Import to CRM"</strong> bookmarklet in your bookmarks bar</li>
+    <li class="step">A confirmation dialog shows the extracted data &mdash; click OK to import</li>
+    <li class="step">The contact appears in your Shortlist CRM tab (refresh the Dash page if already open)</li>
+  </ol>
+
+  <div class="warning">
+    <strong>Note:</strong> The bookmarklet sends data to <code>http://localhost:8050</code>. This is a
+    mixed-content request (HTTPS &rarr; HTTP). Chrome treats <code>localhost</code> as a secure origin,
+    so this works. If you use Firefox and it blocks the request, see the troubleshooting section below.
+  </div>
+
+  <h2>What it extracts</h2>
+  <ul>
+    <li><strong>Name</strong> &mdash; from the profile's <code>&lt;h1&gt;</code> heading</li>
+    <li><strong>Position &amp; Company</strong> &mdash; parsed from the headline ("Title at Company")</li>
+    <li><strong>Profile URL</strong> &mdash; the current page URL (cleaned)</li>
+  </ul>
+  <p>All CRM fields (status, comments, follow-up date) are initialized with defaults. Edit them in the Shortlist CRM tab.</p>
+
+  <h2>Troubleshooting</h2>
+  <ul>
+    <li><strong>"Failed to reach CRM app"</strong> &mdash; is <code>python app.py</code> running?</li>
+    <li><strong>Firefox blocks the request</strong> &mdash; Firefox enforces CSP/mixed-content more strictly. Use Chrome, or consider the Chrome extension approach.</li>
+    <li><strong>Position/Company not detected</strong> &mdash; the headline format varies. You can edit these fields in the CRM tab after import.</li>
+    <li><strong>Duplicate contacts</strong> &mdash; if the profile URL or name already exists in your shortlist, the bookmarklet updates empty fields rather than creating a duplicate.</li>
+  </ul>
+
+  <h2>Raw bookmarklet code</h2>
+  <p>If drag-and-drop doesn't work, create a bookmark manually and paste this as the URL:</p>
+  <pre>javascript:void(function(){var E='http://localhost:8050/api/import-contact',n=document.querySelector('h1'),a=n?n.innerText.trim():'',h='',d=document.querySelector('.text-body-medium');d&&(h=d.innerText.trim());var p='',c='';if(h){var m=h.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);m?(p=m[1].trim(),c=m[2].trim()):p=h}if(!c){var x=document.getElementById('experience');if(x){var s=x.closest('section');if(s){var sp=s.querySelectorAll('span.t-14.t-normal:not(.t-black--light)');for(var i=0;i&lt;sp.length;i++){var t=sp[i].innerText.trim();if(t&&!t.match(/^\d+\s+(yr|mo|day)/i)){c=t;break}}}}}var u=location.origin+location.pathname.replace(/\/+$/,'');if(!a){alert('Could not extract a name. Are you on a LinkedIn profile page?');return}if(!confirm('Import to CRM?\n\nName: '+a+'\nPosition: '+(p||'(not detected)')+'\nCompany: '+(c||'(not detected)')+'\nURL: '+u))return;fetch(E,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:a,position:p,company:c,profile_url:u})}).then(function(r){return r.json()}).then(function(d){d.error?alert('Error: '+d.error):alert((d.status==='created'?'Added':'Updated')+': '+d.name)}).catch(function(e){alert('Failed to reach CRM app.\n\n'+e+'\n\nIs the Dash app running on localhost:8050?')})}())</pre>
+
+</body>
+</html>
