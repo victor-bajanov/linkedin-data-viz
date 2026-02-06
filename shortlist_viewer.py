@@ -53,23 +53,59 @@ def has_data(df):
     return df is not None and not df.empty
 
 
+def sort_follow_up_rows(rows):
+    """Sort follow-up rows by follow_up_sort_key (soonest first) among themselves.
+
+    Non-follow-up rows stay in their original positions. Follow-up rows with
+    a real date are reordered into the slots they occupied, sorted ascending.
+    """
+    fu_indices = []
+    fu_rows = []
+    for i, row in enumerate(rows):
+        if row.get("status") == "follow_up" and row.get("follow_up_sort_key", 9999) != 9999:
+            fu_indices.append(i)
+            fu_rows.append(row)
+
+    fu_rows.sort(key=lambda r: r.get("follow_up_sort_key", 9999))
+
+    for j, idx in enumerate(fu_indices):
+        rows[idx] = fu_rows[j]
+
+    return rows
+
+
 def shortlist_to_row_data(shortlist):
     """Convert shortlist entries to AG Grid row data format."""
-    return [
-        {
+    today = datetime.now().date()
+    rows = []
+    for entry in shortlist:
+        status = entry.get("status", "new")
+        label = STATUS_LABELS.get(status, "New")
+        follow_up_date = entry.get("follow_up_date")
+        follow_up_sort_key = 9999  # default: sort non-follow-up to bottom
+
+        if status == "follow_up" and follow_up_date:
+            label = f"Follow Up ({follow_up_date})"
+            try:
+                fu_date = datetime.strptime(follow_up_date, "%Y-%m-%d").date()
+                follow_up_sort_key = (fu_date - today).days
+            except ValueError:
+                pass
+
+        rows.append({
             "name": entry.get("name", ""),
             "company": entry.get("company", ""),
             "position": entry.get("position", ""),
-            "status": entry.get("status", "new"),
-            "status_label": STATUS_LABELS.get(entry.get("status", "new"), "New"),
+            "status": status,
+            "status_label": label,
             "connected_on": entry.get("connected_on", ""),
             "profile_url": entry.get("profile_url", ""),
             "email": entry.get("email", ""),
             "comments": entry.get("comments", ""),
-            "follow_up_date": entry.get("follow_up_date"),
-        }
-        for entry in shortlist
-    ]
+            "follow_up_date": follow_up_date,
+            "follow_up_sort_key": follow_up_sort_key,
+        })
+    return sort_follow_up_rows(rows)
 
 
 def create_stats_items(shortlist):
@@ -330,12 +366,60 @@ def create_shortlist_viewer_tab():
                                     "flex": 1,
                                     "sortable": True,
                                     "filter": False,
+                                    "comparator": {"function": """
+                                        function(a, b, nodeA, nodeB, isDescending) {
+                                            var keyA = nodeA.data.follow_up_sort_key;
+                                            var keyB = nodeB.data.follow_up_sort_key;
+                                            if (keyA !== keyB) return keyA - keyB;
+                                            return a < b ? -1 : (a > b ? 1 : 0);
+                                        }
+                                    """},
+                                    "cellStyle": {"function": """
+                                        function(params) {
+                                            if (params.data.status !== 'follow_up' || params.data.follow_up_sort_key === 9999) {
+                                                return null;
+                                            }
+                                            var days = params.data.follow_up_sort_key;
+                                            var r, g, b, a;
+                                            if (days <= 0) {
+                                                r=220; g=53; b=69; a=0.25;
+                                            } else if (days <= 3) {
+                                                r=255; g=140; b=0; a=0.22;
+                                            } else if (days <= 7) {
+                                                r=255; g=193; b=7; a=0.20;
+                                            } else if (days <= 14) {
+                                                r=255; g=193; b=7; a=0.10;
+                                            } else {
+                                                r=108; g=117; b=125; a=0.06;
+                                            }
+                                            return {backgroundColor: 'rgba('+r+','+g+','+b+','+a+')'};
+                                        }
+                                    """},
                                 },
                             ],
                             defaultColDef={"resizable": True, "minWidth": 80},
                             dashGridOptions={
                                 "rowSelection": "single",
                                 "animateRows": True,
+                                "postSortRows": {"function": """
+                                    function(params) {
+                                        var nodes = params.nodes;
+                                        var fuIndices = [];
+                                        var fuNodes = [];
+                                        for (var i = 0; i < nodes.length; i++) {
+                                            if (nodes[i].data && nodes[i].data.status === 'follow_up' && nodes[i].data.follow_up_sort_key !== 9999) {
+                                                fuIndices.push(i);
+                                                fuNodes.push(nodes[i]);
+                                            }
+                                        }
+                                        fuNodes.sort(function(a, b) {
+                                            return a.data.follow_up_sort_key - b.data.follow_up_sort_key;
+                                        });
+                                        for (var j = 0; j < fuIndices.length; j++) {
+                                            nodes[fuIndices[j]] = fuNodes[j];
+                                        }
+                                    }
+                                """},
                             },
                             getRowId="params.data.name",
                             style={"height": "400px", "width": "100%"},
@@ -823,7 +907,7 @@ def register_shortlist_callbacks(app, data):
         # Apply current status filter to displayed data
         filtered_data = row_data
         if status_filter:
-            filtered_data = [row for row in row_data if row.get("status") in status_filter]
+            filtered_data = sort_follow_up_rows([row for row in row_data if row.get("status") in status_filter])
 
         new_loaded = {"status": current_status, "comments": current_comments, "follow_up_date": current_follow_up}
 
@@ -852,7 +936,7 @@ def register_shortlist_callbacks(app, data):
         if not selected_statuses:
             return []
 
-        return [row for row in full_data if row.get("status") in selected_statuses]
+        return sort_follow_up_rows([row for row in full_data if row.get("status") in selected_statuses])
 
     @app.callback(
         Output("shortlist-status-filter", "value"),
@@ -1040,7 +1124,7 @@ def register_shortlist_callbacks(app, data):
         # Apply current status filter to displayed data
         filtered_data = row_data
         if status_filter:
-            filtered_data = [row for row in row_data if row.get("status") in status_filter]
+            filtered_data = sort_follow_up_rows([row for row in row_data if row.get("status") in status_filter])
 
         # Build toast message
         toast_msg = f"{contact_name} → {status_label}"
