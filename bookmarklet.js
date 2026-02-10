@@ -64,9 +64,10 @@
     for (var k = 0; k < texts.length; k++) {
       if (texts[k].length > 20) { headline = texts[k]; break; }
     }
-    // Location: shorter text with a comma, not the headline
+    // Location: shorter text with a comma, not the headline, not connections
     for (var m = 0; m < texts.length; m++) {
-      if (texts[m] !== headline && texts[m].indexOf(",") !== -1 && texts[m].length < 80) {
+      if (texts[m] !== headline && texts[m].indexOf(",") !== -1 && texts[m].length < 80 &&
+          texts[m].indexOf("connection") === -1 && texts[m].indexOf("mutual") === -1) {
         location = texts[m];
         break;
       }
