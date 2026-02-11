@@ -513,6 +513,83 @@ def create_shortlist_viewer_tab():
             icon="success",
             style={"position": "fixed", "top": 66, "right": 10, "width": 350, "zIndex": 1050},
         ),
+
+        # Context menu backdrop (transparent overlay to catch outside clicks)
+        html.Div(
+            id='ctx-menu-backdrop',
+            n_clicks=0,
+            style={
+                'display': 'none', 'position': 'fixed',
+                'top': 0, 'left': 0, 'width': '100vw', 'height': '100vh',
+                'zIndex': 9999,
+            },
+        ),
+
+        # Right-click context menu for inline CRM field editing
+        html.Div(
+            id='crm-context-menu',
+            style={'display': 'none', 'position': 'fixed', 'zIndex': 10000},
+            children=[
+                # Header: contact name + close button
+                html.Div([
+                    html.Strong(id='ctx-menu-contact-name'),
+                    html.Button(
+                        id='ctx-menu-close',
+                        className='btn-close',
+                        style={'fontSize': '0.6rem'},
+                        n_clicks=0,
+                    ),
+                ], style={
+                    'display': 'flex', 'justifyContent': 'space-between',
+                    'alignItems': 'center', 'marginBottom': '8px',
+                }),
+                html.Hr(style={'margin': '8px 0'}),
+
+                # Status dropdown
+                dbc.Label("Status", className="fw-bold",
+                          style={'fontSize': '0.8rem', 'marginBottom': '2px'}),
+                dbc.Select(
+                    id='ctx-menu-status',
+                    options=STATUS_OPTIONS,
+                    size='sm',
+                    className='mb-2',
+                ),
+
+                # Follow-up date section (hidden when status != follow_up)
+                html.Div(id='ctx-menu-fu-section', children=[
+                    dbc.Label("Follow-up Date", className="fw-bold",
+                              style={'fontSize': '0.8rem', 'marginBottom': '2px'}),
+                    dbc.Input(
+                        id='ctx-menu-follow-up-date',
+                        type='date',
+                        size='sm',
+                        className='mb-2',
+                    ),
+                ]),
+
+                # Comments
+                dbc.Label("Comments", className="fw-bold",
+                          style={'fontSize': '0.8rem', 'marginBottom': '2px'}),
+                dbc.Textarea(
+                    id='ctx-menu-comments',
+                    style={'height': '60px', 'fontSize': '0.85rem'},
+                    className='mb-2',
+                ),
+
+                # Buttons
+                html.Div([
+                    dbc.Button("Save", id='ctx-menu-save', n_clicks=0,
+                               color='primary', size='sm', className='me-2'),
+                    dbc.Button("Cancel", id='ctx-menu-cancel', n_clicks=0,
+                               color='secondary', size='sm', outline=True),
+                ], style={'display': 'flex'}),
+            ],
+        ),
+
+        # Stores and interval for context menu
+        dcc.Store(id='ctx-menu-data', data=None),
+        dcc.Store(id='ctx-menu-contact', data=None),
+        dcc.Interval(id='ctx-menu-poll', interval=150, n_intervals=0, disabled=False),
     ], fluid=True)
 
 
@@ -566,6 +643,12 @@ def register_shortlist_callbacks(app, data):
                     // Check if we're in an input field
                     const activeTag = document.activeElement.tagName.toLowerCase();
                     if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+                        return;
+                    }
+
+                    // Skip keyboard shortcuts when context menu is open
+                    var ctxMenu = document.getElementById('crm-context-menu');
+                    if (ctxMenu && ctxMenu.style.display !== 'none') {
                         return;
                     }
 
@@ -1138,3 +1221,229 @@ def register_shortlist_callbacks(app, data):
         new_loaded = {"status": new_status, "comments": final_comments, "follow_up_date": final_follow_up_date}
 
         return True, toast_msg, filtered_data, stats_items, row_data, new_status, final_follow_up_date, date_picker_disabled, new_loaded
+
+    # ── Context menu callbacks ──────────────────────────────────────────
+
+    # Hidden style constants for context menu
+    _CTX_MENU_HIDDEN = {'display': 'none', 'position': 'fixed', 'zIndex': 10000}
+    _CTX_BACKDROP_HIDDEN = {
+        'display': 'none', 'position': 'fixed',
+        'top': 0, 'left': 0, 'width': '100vw', 'height': '100vh', 'zIndex': 9999,
+    }
+
+    # Clientside: capture right-click events on the CRM table rows
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!window._ctxMenuListenerSetup) {
+                window._ctxMenuListenerSetup = true;
+                window._ctxMenuPending = null;
+
+                document.addEventListener('contextmenu', function(e) {
+                    var gridEl = document.getElementById('shortlist-crm-table');
+                    if (!gridEl || gridEl.offsetParent === null) return;
+
+                    // Only handle clicks on data rows (not headers or floating filters)
+                    var row = e.target.closest('.ag-row');
+                    if (!row) return;
+                    if (row.closest('.ag-header') || row.closest('.ag-floating-filter-body')) return;
+
+                    var rowId = row.getAttribute('row-id');
+                    if (!rowId) return;
+
+                    e.preventDefault();
+
+                    window._ctxMenuPending = {
+                        name: rowId,
+                        x: e.clientX,
+                        y: e.clientY,
+                        viewW: window.innerWidth,
+                        viewH: window.innerHeight,
+                        timestamp: Date.now()
+                    };
+                });
+            }
+
+            if (window._ctxMenuPending) {
+                var d = window._ctxMenuPending;
+                window._ctxMenuPending = null;
+                return d;
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('ctx-menu-data', 'data'),
+        Input('ctx-menu-poll', 'n_intervals'),
+    )
+
+    # Clientside: toggle follow-up date section visibility in context menu
+    app.clientside_callback(
+        """
+        function(status) {
+            if (status === 'follow_up') {
+                return {'display': 'block'};
+            }
+            return {'display': 'none'};
+        }
+        """,
+        Output('ctx-menu-fu-section', 'style'),
+        Input('ctx-menu-status', 'value'),
+        prevent_initial_call=True,
+    )
+
+    @app.callback(
+        [Output('crm-context-menu', 'style'),
+         Output('ctx-menu-backdrop', 'style'),
+         Output('ctx-menu-contact-name', 'children'),
+         Output('ctx-menu-status', 'value'),
+         Output('ctx-menu-follow-up-date', 'value'),
+         Output('ctx-menu-comments', 'value'),
+         Output('ctx-menu-contact', 'data')],
+        [Input('ctx-menu-data', 'data')],
+        prevent_initial_call=True,
+    )
+    def open_context_menu(ctx_data):
+        """Open the context menu at right-click position with the contact's CRM data."""
+        from dash import no_update
+        NO = (no_update,) * 7
+
+        if not ctx_data or not ctx_data.get('name'):
+            return NO
+
+        name = ctx_data['name']
+        x = ctx_data.get('x', 0)
+        y = ctx_data.get('y', 0)
+        view_w = ctx_data.get('viewW', 1200)
+        view_h = ctx_data.get('viewH', 800)
+
+        # Look up contact in shortlist
+        shortlist = load_shortlist_with_defaults()
+        contact = None
+        for entry in shortlist:
+            if entry.get('name') == name:
+                contact = entry
+                break
+
+        if not contact:
+            return NO
+
+        # Adjust position to keep menu within viewport
+        menu_w, menu_h = 300, 340
+        if x + menu_w > view_w - 10:
+            x = max(10, view_w - menu_w - 10)
+        if y + menu_h > view_h - 10:
+            y = max(10, view_h - menu_h - 10)
+
+        menu_style = {
+            'display': 'block',
+            'position': 'fixed',
+            'left': f'{x}px',
+            'top': f'{y}px',
+            'zIndex': 10000,
+        }
+        backdrop_style = {
+            'display': 'block',
+            'position': 'fixed',
+            'top': 0, 'left': 0,
+            'width': '100vw', 'height': '100vh',
+            'zIndex': 9999,
+        }
+
+        return (
+            menu_style,
+            backdrop_style,
+            name,
+            contact.get('status', 'new'),
+            contact.get('follow_up_date') or '',
+            contact.get('comments', ''),
+            {'name': name},
+        )
+
+    @app.callback(
+        [Output('crm-context-menu', 'style', allow_duplicate=True),
+         Output('ctx-menu-backdrop', 'style', allow_duplicate=True)],
+        [Input('ctx-menu-close', 'n_clicks'),
+         Input('ctx-menu-cancel', 'n_clicks'),
+         Input('ctx-menu-backdrop', 'n_clicks')],
+        prevent_initial_call=True,
+    )
+    def close_context_menu(close_clicks, cancel_clicks, backdrop_clicks):
+        """Close the context menu without saving."""
+        return _CTX_MENU_HIDDEN, _CTX_BACKDROP_HIDDEN
+
+    @app.callback(
+        [Output('shortlist-save-toast', 'is_open', allow_duplicate=True),
+         Output('shortlist-save-toast', 'children', allow_duplicate=True),
+         Output('shortlist-crm-table', 'rowData', allow_duplicate=True),
+         Output('shortlist-stats', 'children', allow_duplicate=True),
+         Output('shortlist-store-full', 'data', allow_duplicate=True),
+         Output('crm-context-menu', 'style', allow_duplicate=True),
+         Output('ctx-menu-backdrop', 'style', allow_duplicate=True),
+         Output('shortlist-status-dropdown', 'value', allow_duplicate=True),
+         Output('shortlist-follow-up-date', 'date', allow_duplicate=True),
+         Output('shortlist-comments-textarea', 'value', allow_duplicate=True),
+         Output('contact-loaded-values', 'data', allow_duplicate=True)],
+        [Input('ctx-menu-save', 'n_clicks')],
+        [State('ctx-menu-contact', 'data'),
+         State('ctx-menu-status', 'value'),
+         State('ctx-menu-follow-up-date', 'value'),
+         State('ctx-menu-comments', 'value'),
+         State('selected-shortlist-contact', 'data'),
+         State('shortlist-status-filter', 'value')],
+        prevent_initial_call=True,
+    )
+    def save_context_menu(n_clicks, contact_store, status, follow_up_date, comments, selected_contact, status_filter):
+        """Save CRM field changes from the context menu."""
+        from dash import no_update
+
+        if not contact_store or not contact_store.get('name'):
+            return (no_update,) * 11
+
+        contact_name = contact_store['name']
+        current_status = status or 'new'
+        current_comments = comments or ''
+        current_follow_up = follow_up_date if current_status == 'follow_up' else None
+
+        # Load and update shortlist
+        shortlist = load_shortlist_with_defaults()
+        updated = False
+        for entry in shortlist:
+            if entry.get('name') == contact_name:
+                entry['status'] = current_status
+                entry['comments'] = current_comments
+                entry['last_updated'] = datetime.now().isoformat()
+                entry['follow_up_date'] = current_follow_up
+                updated = True
+                break
+
+        if not updated:
+            return (no_update,) * 11
+
+        last_updated = datetime.now().isoformat()
+        save_shortlist(shortlist)
+        save_to_crm_archive(contact_name, current_status, current_comments, last_updated, current_follow_up)
+
+        row_data = shortlist_to_row_data(shortlist)
+        stats_items = create_stats_items(shortlist)
+
+        # Apply current status filter
+        filtered_data = row_data
+        if status_filter:
+            filtered_data = sort_follow_up_rows([row for row in row_data if row.get('status') in status_filter])
+
+        toast_msg = f"Saved {contact_name}"
+
+        # Update side panel if the same contact is currently selected
+        if selected_contact and selected_contact.get('name') == contact_name:
+            new_loaded = {'status': current_status, 'comments': current_comments, 'follow_up_date': current_follow_up}
+            return (
+                True, toast_msg, filtered_data, stats_items, row_data,
+                _CTX_MENU_HIDDEN, _CTX_BACKDROP_HIDDEN,
+                current_status, current_follow_up, current_comments, new_loaded,
+            )
+
+        return (
+            True, toast_msg, filtered_data, stats_items, row_data,
+            _CTX_MENU_HIDDEN, _CTX_BACKDROP_HIDDEN,
+            no_update, no_update, no_update, no_update,
+        )
