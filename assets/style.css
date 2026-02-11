@@ -162,3 +162,21 @@ h4, h5 {
     padding: 4px 8px;
     font-family: inherit;
 }
+
+/* Right-click context menu */
+#crm-context-menu {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+    padding: 16px;
+    min-width: 260px;
+    max-width: 300px;
+}
+
+#crm-context-menu label {
+    display: block;
+}
+
+#crm-context-menu .btn-close:focus {
+    box-shadow: none;
+}
