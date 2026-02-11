@@ -545,6 +545,16 @@ def create_shortlist_viewer_tab():
                 }),
                 html.Hr(style={'margin': '8px 0'}),
 
+                # Company
+                dbc.Label("Company", className="fw-bold",
+                          style={'fontSize': '0.8rem', 'marginBottom': '2px'}),
+                dbc.Input(
+                    id='ctx-menu-company',
+                    type='text',
+                    size='sm',
+                    className='mb-2',
+                ),
+
                 # Status dropdown
                 dbc.Label("Status", className="fw-bold",
                           style={'fontSize': '0.8rem', 'marginBottom': '2px'}),
@@ -1295,6 +1305,7 @@ def register_shortlist_callbacks(app, data):
         [Output('crm-context-menu', 'style'),
          Output('ctx-menu-backdrop', 'style'),
          Output('ctx-menu-contact-name', 'children'),
+         Output('ctx-menu-company', 'value'),
          Output('ctx-menu-status', 'value'),
          Output('ctx-menu-follow-up-date', 'value'),
          Output('ctx-menu-comments', 'value'),
@@ -1305,7 +1316,7 @@ def register_shortlist_callbacks(app, data):
     def open_context_menu(ctx_data):
         """Open the context menu at right-click position with the contact's CRM data."""
         from dash import no_update
-        NO = (no_update,) * 7
+        NO = (no_update,) * 8
 
         if not ctx_data or not ctx_data.get('name'):
             return NO
@@ -1328,7 +1339,7 @@ def register_shortlist_callbacks(app, data):
             return NO
 
         # Adjust position to keep menu within viewport
-        menu_w, menu_h = 300, 340
+        menu_w, menu_h = 300, 380
         if x + menu_w > view_w - 10:
             x = max(10, view_w - menu_w - 10)
         if y + menu_h > view_h - 10:
@@ -1353,6 +1364,7 @@ def register_shortlist_callbacks(app, data):
             menu_style,
             backdrop_style,
             name,
+            contact.get('company', ''),
             contact.get('status', 'new'),
             contact.get('follow_up_date') or '',
             contact.get('comments', ''),
@@ -1385,6 +1397,7 @@ def register_shortlist_callbacks(app, data):
          Output('contact-loaded-values', 'data', allow_duplicate=True)],
         [Input('ctx-menu-save', 'n_clicks')],
         [State('ctx-menu-contact', 'data'),
+         State('ctx-menu-company', 'value'),
          State('ctx-menu-status', 'value'),
          State('ctx-menu-follow-up-date', 'value'),
          State('ctx-menu-comments', 'value'),
@@ -1392,7 +1405,7 @@ def register_shortlist_callbacks(app, data):
          State('shortlist-status-filter', 'value')],
         prevent_initial_call=True,
     )
-    def save_context_menu(n_clicks, contact_store, status, follow_up_date, comments, selected_contact, status_filter):
+    def save_context_menu(n_clicks, contact_store, company, status, follow_up_date, comments, selected_contact, status_filter):
         """Save CRM field changes from the context menu."""
         from dash import no_update
 
@@ -1400,6 +1413,7 @@ def register_shortlist_callbacks(app, data):
             return (no_update,) * 11
 
         contact_name = contact_store['name']
+        current_company = company or ''
         current_status = status or 'new'
         current_comments = comments or ''
         current_follow_up = follow_up_date if current_status == 'follow_up' else None
@@ -1409,6 +1423,7 @@ def register_shortlist_callbacks(app, data):
         updated = False
         for entry in shortlist:
             if entry.get('name') == contact_name:
+                entry['company'] = current_company
                 entry['status'] = current_status
                 entry['comments'] = current_comments
                 entry['last_updated'] = datetime.now().isoformat()
