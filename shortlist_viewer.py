@@ -25,6 +25,7 @@ STATUS_OPTIONS = [
     {"label": "Meeting Scheduled", "value": "meeting_scheduled"},
     {"label": "In Conversation", "value": "in_conversation"},
     {"label": "Follow Up", "value": "follow_up"},
+    {"label": "Proposal Requested", "value": "proposal_requested"},
     {"label": "Proposal Sent", "value": "proposal_sent"},
     {"label": "Closed (Positive)", "value": "closed_positive"},
     {"label": "Closed (Negative)", "value": "closed_negative"},
@@ -39,6 +40,7 @@ STATUS_COLORS = {
     "meeting_scheduled": "success",
     "in_conversation": "warning",
     "follow_up": "secondary",
+    "proposal_requested": "warning",
     "proposal_sent": "info",
     "closed_positive": "success",
     "closed_negative": "danger",
@@ -620,9 +622,9 @@ def register_shortlist_callbacks(app, data):
         '5': 'meeting_scheduled',
         '6': 'in_conversation',
         '7': 'follow_up',
-        '8': 'proposal_sent',
-        '9': 'closed_positive',
-        '0': 'closed_negative',
+        '8': 'proposal_requested',
+        '9': 'proposal_sent',
+        '0': 'closed_positive',
         # Letter shortcuts
         'c': 'contacted',
         'h': 'on_hold',
@@ -630,8 +632,10 @@ def register_shortlist_callbacks(app, data):
         't': 'in_conversation',
         's': 'meeting_scheduled',
         'f': 'follow_up',
+        'r': 'proposal_requested',
         'p': 'proposal_sent',
-        'r': 'closed_referrer',
+        'n': 'closed_negative',
+        'e': 'closed_referrer',
     }
 
     # Clientside callback to capture global keyboard events
@@ -673,7 +677,7 @@ def register_shortlist_callbacks(app, data):
                     }
 
                     const key = e.key;
-                    const letterShortcuts = ['c', 'h', 'x', 't', 's', 'f', 'p', 'r', 'd'];
+                    const letterShortcuts = ['c', 'h', 'x', 't', 's', 'f', 'p', 'r', 'n', 'e', 'd'];
                     const isLetter = letterShortcuts.includes(key.toLowerCase());
 
                     // Handle 'd' key for date picker focus
@@ -748,7 +752,7 @@ def register_shortlist_callbacks(app, data):
                     }
 
                     // Handle arrow keys, number keys 0-9, and other letter shortcuts
-                    const otherLetters = ['c', 'h', 'x', 't', 's', 'p', 'r'];
+                    const otherLetters = ['c', 'h', 'x', 't', 's', 'p', 'r', 'n', 'e'];
                     const isOtherLetter = otherLetters.includes(key.toLowerCase());
                     if (key === 'ArrowUp' || key === 'ArrowDown' || (key >= '0' && key <= '9') || isOtherLetter) {
                         e.preventDefault();
