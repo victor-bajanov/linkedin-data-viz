@@ -497,6 +497,7 @@ def create_shortlist_viewer_tab():
         dcc.Store(id='shortlist-store-full', data=row_data),
         dcc.Store(id='shortlist-selected-index', data=None),
         dcc.Store(id='keyboard-event', data={'key': None, 'timestamp': 0}),
+        dcc.Store(id='undo-state', data=None),
         dcc.Interval(id='keyboard-poll', interval=100, n_intervals=0, disabled=False),
 
         # Auto-save stores and interval
@@ -677,6 +678,15 @@ def register_shortlist_callbacks(app, data):
                     }
 
                     const key = e.key;
+
+                    // Handle Cmd+Z / Ctrl+Z for undo
+                    if ((e.metaKey || e.ctrlKey) && key.toLowerCase() === 'z') {
+                        e.preventDefault();
+                        window._shortlistPendingKey = 'undo';
+                        window._shortlistKeyTimestamp = Date.now();
+                        return;
+                    }
+
                     const letterShortcuts = ['c', 'h', 'x', 't', 's', 'f', 'p', 'r', 'n', 'e', 'd'];
                     const isLetter = letterShortcuts.includes(key.toLowerCase());
 
@@ -934,7 +944,8 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-crm-table", "rowData"),
          Output("shortlist-stats", "children"),
          Output("shortlist-store-full", "data"),
-         Output("contact-loaded-values", "data", allow_duplicate=True)],
+         Output("contact-loaded-values", "data", allow_duplicate=True),
+         Output("undo-state", "data", allow_duplicate=True)],
         [Input("shortlist-status-dropdown", "value"),
          Input("shortlist-follow-up-date", "date"),
          Input("comments-debounced", "data")],
@@ -949,11 +960,11 @@ def register_shortlist_callbacks(app, data):
         from dash import no_update
 
         if not selected_contact or not loaded_values:
-            return no_update, no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         contact_name = selected_contact.get("name")
         if not contact_name:
-            return no_update, no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         # Determine current values
         current_status = status
@@ -971,7 +982,7 @@ def register_shortlist_callbacks(app, data):
         loaded_follow_up = loaded_values.get("follow_up_date")
 
         if current_status == loaded_status and current_comments == loaded_comments and current_follow_up == loaded_follow_up:
-            return no_update, no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         # Clear follow_up_date if status is not follow_up
         if current_status != "follow_up":
@@ -979,6 +990,18 @@ def register_shortlist_callbacks(app, data):
 
         # Load current shortlist
         shortlist = load_shortlist_with_defaults()
+
+        # Capture old state for undo before updating
+        old_state_for_undo = None
+        for entry in shortlist:
+            if entry.get("name") == contact_name:
+                old_state_for_undo = {
+                    'name': contact_name,
+                    'status': entry.get('status', 'new'),
+                    'comments': entry.get('comments', ''),
+                    'follow_up_date': entry.get('follow_up_date'),
+                }
+                break
 
         # Find and update the contact
         updated = False
@@ -992,7 +1015,7 @@ def register_shortlist_callbacks(app, data):
                 break
 
         if not updated:
-            return no_update, no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         last_updated = datetime.now().isoformat()
         save_shortlist(shortlist)
@@ -1008,7 +1031,7 @@ def register_shortlist_callbacks(app, data):
 
         new_loaded = {"status": current_status, "comments": current_comments, "follow_up_date": current_follow_up}
 
-        return True, f"Auto-saved {contact_name}", filtered_data, stats_items, row_data, new_loaded
+        return True, f"Auto-saved {contact_name}", filtered_data, stats_items, row_data, new_loaded, old_state_for_undo
 
     @app.callback(
         Output("shortlist-follow-up-date", "disabled", allow_duplicate=True),
@@ -1131,23 +1154,68 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-status-dropdown", "value", allow_duplicate=True),
          Output("shortlist-follow-up-date", "date", allow_duplicate=True),
          Output("shortlist-follow-up-date", "disabled", allow_duplicate=True),
-         Output("contact-loaded-values", "data", allow_duplicate=True)],
+         Output("contact-loaded-values", "data", allow_duplicate=True),
+         Output("undo-state", "data", allow_duplicate=True)],
         [Input("keyboard-event", "data")],
         [State("selected-shortlist-contact", "data"),
          State("shortlist-comments-textarea", "value"),
-         State("shortlist-status-filter", "value")],
+         State("shortlist-status-filter", "value"),
+         State("undo-state", "data")],
         prevent_initial_call=True
     )
-    def handle_keyboard_status_change(keyboard_event, selected_contact, comments, status_filter):
-        """Handle number key and letter status changes, including f + digits for follow-up."""
+    def handle_keyboard_status_change(keyboard_event, selected_contact, comments, status_filter, undo_state):
+        """Handle number key and letter status changes, including f + digits for follow-up and Cmd+Z undo."""
         from dash import no_update
 
-        NO_UPD = (no_update,) * 9
+        NO_UPD = (no_update,) * 10
 
         if not keyboard_event or not keyboard_event.get("key"):
             return NO_UPD
 
         key = keyboard_event.get("key")
+
+        # Handle undo (Cmd+Z / Ctrl+Z)
+        if key == 'undo':
+            if not undo_state:
+                return NO_UPD
+
+            undo_name = undo_state['name']
+            old_status = undo_state['status']
+            old_comments = undo_state['comments']
+            old_follow_up = undo_state['follow_up_date']
+
+            shortlist = load_shortlist_with_defaults()
+            updated = False
+            for entry in shortlist:
+                if entry.get('name') == undo_name:
+                    entry['status'] = old_status
+                    entry['comments'] = old_comments
+                    entry['follow_up_date'] = old_follow_up
+                    entry['last_updated'] = datetime.now().isoformat()
+                    updated = True
+                    break
+
+            if not updated:
+                return NO_UPD
+
+            save_shortlist(shortlist)
+            save_to_crm_archive(undo_name, old_status, old_comments, datetime.now().isoformat(), old_follow_up)
+
+            row_data = shortlist_to_row_data(shortlist)
+            stats_items = create_stats_items(shortlist)
+            filtered_data = row_data
+            if status_filter:
+                filtered_data = sort_follow_up_rows([row for row in row_data if row.get('status') in status_filter])
+
+            status_label = STATUS_LABELS.get(old_status, old_status)
+            toast_msg = f"Undo: {undo_name} → {status_label}"
+
+            if selected_contact and selected_contact.get('name') == undo_name:
+                date_picker_disabled = old_status != 'follow_up'
+                new_loaded = {'status': old_status, 'comments': old_comments, 'follow_up_date': old_follow_up}
+                return True, toast_msg, filtered_data, stats_items, row_data, old_status, old_follow_up, date_picker_disabled, new_loaded, None
+
+            return True, toast_msg, filtered_data, stats_items, row_data, no_update, no_update, no_update, no_update, None
 
         # Parse follow-up key with optional day offset (e.g., 'f', 'f5', 'f20')
         follow_up_date = None
@@ -1182,6 +1250,18 @@ def register_shortlist_callbacks(app, data):
         # Load current shortlist
         shortlist = load_shortlist_with_defaults()
 
+        # Capture old state for undo before updating
+        old_state_for_undo = None
+        for entry in shortlist:
+            if entry.get("name") == contact_name:
+                old_state_for_undo = {
+                    'name': contact_name,
+                    'status': entry.get('status', 'new'),
+                    'comments': entry.get('comments', ''),
+                    'follow_up_date': entry.get('follow_up_date'),
+                }
+                break
+
         # Find and update the contact
         updated = False
         for entry in shortlist:
@@ -1199,7 +1279,7 @@ def register_shortlist_callbacks(app, data):
                 break
 
         if not updated:
-            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         # Get the last_updated timestamp and comments that were set
         last_updated = None
@@ -1234,7 +1314,7 @@ def register_shortlist_callbacks(app, data):
         # Update loaded values so auto-save doesn't double-fire
         new_loaded = {"status": new_status, "comments": final_comments, "follow_up_date": final_follow_up_date}
 
-        return True, toast_msg, filtered_data, stats_items, row_data, new_status, final_follow_up_date, date_picker_disabled, new_loaded
+        return True, toast_msg, filtered_data, stats_items, row_data, new_status, final_follow_up_date, date_picker_disabled, new_loaded, old_state_for_undo
 
     # ── Context menu callbacks ──────────────────────────────────────────
 
@@ -1398,7 +1478,8 @@ def register_shortlist_callbacks(app, data):
          Output('shortlist-status-dropdown', 'value', allow_duplicate=True),
          Output('shortlist-follow-up-date', 'date', allow_duplicate=True),
          Output('shortlist-comments-textarea', 'value', allow_duplicate=True),
-         Output('contact-loaded-values', 'data', allow_duplicate=True)],
+         Output('contact-loaded-values', 'data', allow_duplicate=True),
+         Output('undo-state', 'data', allow_duplicate=True)],
         [Input('ctx-menu-save', 'n_clicks')],
         [State('ctx-menu-contact', 'data'),
          State('ctx-menu-company', 'value'),
@@ -1414,7 +1495,7 @@ def register_shortlist_callbacks(app, data):
         from dash import no_update
 
         if not contact_store or not contact_store.get('name'):
-            return (no_update,) * 11
+            return (no_update,) * 12
 
         contact_name = contact_store['name']
         current_company = company or ''
@@ -1424,6 +1505,19 @@ def register_shortlist_callbacks(app, data):
 
         # Load and update shortlist
         shortlist = load_shortlist_with_defaults()
+
+        # Capture old state for undo
+        old_state_for_undo = None
+        for entry in shortlist:
+            if entry.get('name') == contact_name:
+                old_state_for_undo = {
+                    'name': contact_name,
+                    'status': entry.get('status', 'new'),
+                    'comments': entry.get('comments', ''),
+                    'follow_up_date': entry.get('follow_up_date'),
+                }
+                break
+
         updated = False
         for entry in shortlist:
             if entry.get('name') == contact_name:
@@ -1436,7 +1530,7 @@ def register_shortlist_callbacks(app, data):
                 break
 
         if not updated:
-            return (no_update,) * 11
+            return (no_update,) * 12
 
         last_updated = datetime.now().isoformat()
         save_shortlist(shortlist)
@@ -1459,10 +1553,12 @@ def register_shortlist_callbacks(app, data):
                 True, toast_msg, filtered_data, stats_items, row_data,
                 _CTX_MENU_HIDDEN, _CTX_BACKDROP_HIDDEN,
                 current_status, current_follow_up, current_comments, new_loaded,
+                old_state_for_undo,
             )
 
         return (
             True, toast_msg, filtered_data, stats_items, row_data,
             _CTX_MENU_HIDDEN, _CTX_BACKDROP_HIDDEN,
             no_update, no_update, no_update, no_update,
+            old_state_for_undo,
         )
