@@ -4,16 +4,38 @@ A comprehensive interactive dashboard for visualising and analysing your LinkedI
 
 ## Features
 
-### 8 Interactive Tabs:
+### 9 Interactive Tabs:
 
 1. **Profile Overview** - Personal information, skills distribution, and professional summary
 2. **Network Analytics** - Connection growth timeline, top companies in network, endorsements
 3. **Career Journey** - Career timeline visualisation, education history, certifications
-4. **Communications** - Message volume analysis, top conversation partners
-5. **Job Search** - Application trends, target companies, saved jobs statistics
-6. **Learning** - Course activity, content type distribution, recent learning
-7. **Financial** - LinkedIn Premium spending analysis and transaction history
-8. **Connections** - Interactive table of all LinkedIn connections with selection and export capabilities
+4. **Connections** - Interactive table of all LinkedIn connections with selection and shortlist management
+5. **Communications** - Message volume analysis, top conversation partners
+6. **Job Search** - Application trends, target companies, saved jobs statistics
+7. **Learning** - Course activity, content type distribution, recent learning
+8. **Financial** - LinkedIn Premium spending analysis and transaction history
+9. **Shortlist CRM** - Full CRM pipeline for managing shortlisted contacts (see below)
+
+### Shortlist CRM
+
+The CRM tab provides a pipeline for tracking and managing shortlisted LinkedIn contacts:
+
+- **12 pipeline statuses**: New, On Hold, To Contact, Contacted, Meeting Scheduled, In Conversation, Follow Up, Proposal Requested, Proposal Sent, Closed (Positive), Closed (Negative), Closed (Potential Referrer)
+- **Keyboard shortcuts**: Number keys `1`-`9`, `0` for statuses; letter shortcuts (`c` Contacted, `h` On Hold, `x` To Contact, `t` In Conversation, `s` Meeting Scheduled, `f` Follow Up, `r` Proposal Requested, `p` Proposal Sent, `n` Closed Negative, `e` Closed Referrer); arrow keys for navigation; `Cmd+Z` / `Ctrl+Z` to undo the last status change
+- **Follow-up dates**: Press `f` then enter a number of days (e.g. `f7`) to set a follow-up date; follow-up contacts are sorted soonest-first
+- **Auto-save**: Status and follow-up date changes save instantly; comments are debounced and saved automatically
+- **Right-click context menu**: Right-click any row to edit Company, Status, Follow-up Date, and Comments inline
+- **Multi-select status filter**: Filter the CRM table by one or more statuses simultaneously
+- **CRM data persistence**: Two-tier archive system — active data in `connections_shortlist.json`, backup in `crm_archive.json` so CRM data is preserved when contacts are removed and re-added to the shortlist
+
+### LinkedIn Profile Import Bookmarklet
+
+A browser bookmarklet (`utils/bookmarklet.js`) lets you import contacts directly from LinkedIn profile pages into the CRM:
+
+1. Install the bookmarklet via `utils/bookmarklet_install.html`
+2. Navigate to any LinkedIn profile and click the bookmarklet
+3. It extracts the contact's name, position, company, and profile URL
+4. Sends the data to the dashboard's `/api/import-contact` endpoint and adds them to your shortlist
 
 ## Installation
 
@@ -78,13 +100,17 @@ data/
 - **Investment in Learning**: Track LinkedIn Learning course engagement
 - **Financial Overview**: Monitor LinkedIn Premium subscription costs
 - **Connection Management**: View, filter, sort, and create shortlists of all LinkedIn connections with persistent JSON export
+- **CRM Pipeline**: Track contact status through a full sales/networking pipeline with keyboard-driven workflow
+- **Quick Import**: Add LinkedIn contacts to your CRM directly from their profile page via bookmarklet
 
 ## Customisation
 
 The dashboard can be customised by modifying:
-- `app.py` - Main application and tab layouts
+- `app.py` - Main application, tab layouts, and API endpoints
+- `shortlist_viewer.py` - CRM tab logic, statuses, and keyboard shortcuts
 - `data_loader.py` - Data processing and cleaning logic
 - `assets/style.css` - Visual styling and themes
+- `utils/bookmarklet.js` - LinkedIn profile import bookmarklet
 
 ## Requirements
 
