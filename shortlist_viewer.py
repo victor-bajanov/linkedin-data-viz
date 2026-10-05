@@ -1110,42 +1110,6 @@ def register_shortlist_callbacks(app, data):
         return None
 
     @app.callback(
-        Output("shortlist-crm-table", "selectedRows", allow_duplicate=True),
-        [Input("keyboard-event", "data")],
-        [State("shortlist-selected-index", "data"),
-         State("shortlist-crm-table", "rowData")],
-        prevent_initial_call=True
-    )
-    def handle_keyboard_navigation(keyboard_event, current_index, row_data):
-        """Handle arrow key navigation in the grid."""
-        from dash import no_update
-
-        if not keyboard_event or not keyboard_event.get("key"):
-            return no_update
-
-        key = keyboard_event.get("key")
-        if key not in ("ArrowUp", "ArrowDown"):
-            return no_update
-
-        if not row_data:
-            return no_update
-
-        # If no selection, start at first row for down, last for up
-        if current_index is None:
-            if key == "ArrowDown":
-                return [row_data[0]]
-            else:
-                return [row_data[-1]]
-
-        # Calculate new index
-        if key == "ArrowUp":
-            new_index = max(0, current_index - 1)
-        else:
-            new_index = min(len(row_data) - 1, current_index + 1)
-
-        return [row_data[new_index]]
-
-    @app.callback(
         [Output("shortlist-save-toast", "is_open", allow_duplicate=True),
          Output("shortlist-save-toast", "children", allow_duplicate=True),
          Output("shortlist-crm-table", "rowData", allow_duplicate=True),
@@ -1155,24 +1119,49 @@ def register_shortlist_callbacks(app, data):
          Output("shortlist-follow-up-date", "date", allow_duplicate=True),
          Output("shortlist-follow-up-date", "disabled", allow_duplicate=True),
          Output("contact-loaded-values", "data", allow_duplicate=True),
-         Output("undo-state", "data", allow_duplicate=True)],
+         Output("undo-state", "data", allow_duplicate=True),
+         Output("shortlist-crm-table", "selectedRows", allow_duplicate=True),
+         Output("selected-shortlist-contact", "data", allow_duplicate=True)],
         [Input("keyboard-event", "data")],
         [State("selected-shortlist-contact", "data"),
          State("shortlist-comments-textarea", "value"),
          State("shortlist-status-filter", "value"),
-         State("undo-state", "data")],
+         State("undo-state", "data"),
+         State("shortlist-crm-table", "rowData"),
+         State("shortlist-selected-index", "data")],
         prevent_initial_call=True
     )
-    def handle_keyboard_status_change(keyboard_event, selected_contact, comments, status_filter, undo_state):
-        """Handle number key and letter status changes, including f + digits for follow-up and Cmd+Z undo."""
+    def handle_keyboard_event(keyboard_event, selected_contact, comments, status_filter, undo_state, current_row_data, current_index):
+        """Handle keyboard: arrow navigation + number/letter status changes + f+digits for follow-up + Cmd+Z undo.
+
+        NOTE: When advancing selection after a status change, this callback writes both
+        selectedRows and selected-shortlist-contact. The display_contact_details callback
+        will also fire from the selectedRows change, but since we set contact-loaded-values
+        here to match the new contact, its flush logic will see no diff and skip saving.
+        """
         from dash import no_update
 
-        NO_UPD = (no_update,) * 10
+        NO_UPD = (no_update,) * 12
 
         if not keyboard_event or not keyboard_event.get("key"):
             return NO_UPD
 
         key = keyboard_event.get("key")
+
+        # ── Arrow key navigation ──
+        if key in ("ArrowUp", "ArrowDown"):
+            if not current_row_data:
+                return NO_UPD
+            if current_index is None:
+                nav_index = 0 if key == "ArrowDown" else len(current_row_data) - 1
+            elif key == "ArrowUp":
+                nav_index = max(0, current_index - 1)
+            else:
+                nav_index = min(len(current_row_data) - 1, current_index + 1)
+            # Only update selectedRows; the rest stays unchanged
+            return (no_update,) * 10 + ([current_row_data[nav_index]], no_update)
+
+        # ── Status changes and undo ──
 
         # Handle undo (Cmd+Z / Ctrl+Z)
         if key == 'undo':
@@ -1213,9 +1202,9 @@ def register_shortlist_callbacks(app, data):
             if selected_contact and selected_contact.get('name') == undo_name:
                 date_picker_disabled = old_status != 'follow_up'
                 new_loaded = {'status': old_status, 'comments': old_comments, 'follow_up_date': old_follow_up}
-                return True, toast_msg, filtered_data, stats_items, row_data, old_status, old_follow_up, date_picker_disabled, new_loaded, None
+                return True, toast_msg, filtered_data, stats_items, row_data, old_status, old_follow_up, date_picker_disabled, new_loaded, None, no_update, no_update
 
-            return True, toast_msg, filtered_data, stats_items, row_data, no_update, no_update, no_update, no_update, None
+            return True, toast_msg, filtered_data, stats_items, row_data, no_update, no_update, no_update, no_update, None, no_update, no_update
 
         # Parse follow-up key with optional day offset (e.g., 'f', 'f5', 'f20')
         follow_up_date = None
@@ -1279,7 +1268,7 @@ def register_shortlist_callbacks(app, data):
                 break
 
         if not updated:
-            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return True, f"Contact '{contact_name}' not found", no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         # Get the last_updated timestamp and comments that were set
         last_updated = None
@@ -1314,7 +1303,32 @@ def register_shortlist_callbacks(app, data):
         # Update loaded values so auto-save doesn't double-fire
         new_loaded = {"status": new_status, "comments": final_comments, "follow_up_date": final_follow_up_date}
 
-        return True, toast_msg, filtered_data, stats_items, row_data, new_status, final_follow_up_date, date_picker_disabled, new_loaded, old_state_for_undo
+        # After status change, advance selection to the row that now occupies
+        # the modified contact's old position (so the next shortcut hits the
+        # visually-top row, not the one that just moved away).
+        out_selected_rows = no_update
+        out_selected_contact = no_update
+        out_status = new_status
+        out_follow_up = final_follow_up_date
+        if current_row_data and filtered_data:
+            # Find old index of the modified contact (defaults to 0 if not found)
+            old_index = 0
+            for i, row in enumerate(current_row_data):
+                if row.get("name") == contact_name:
+                    old_index = i
+                    break
+            # Select the row at the same index in new filtered data (clamped)
+            clamped_index = min(old_index, len(filtered_data) - 1)
+            next_row = filtered_data[clamped_index]
+            out_selected_rows = [next_row]
+            out_selected_contact = {"name": next_row.get("name")}
+            # Update detail panel to reflect the newly selected contact
+            out_status = next_row.get("status", "new")
+            out_follow_up = next_row.get("follow_up_date")
+            new_loaded = {"status": out_status, "comments": next_row.get("comments", ""), "follow_up_date": out_follow_up}
+            date_picker_disabled = out_status != 'follow_up'
+
+        return True, toast_msg, filtered_data, stats_items, row_data, out_status, out_follow_up, date_picker_disabled, new_loaded, old_state_for_undo, out_selected_rows, out_selected_contact
 
     # ── Context menu callbacks ──────────────────────────────────────────
 
